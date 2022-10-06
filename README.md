@@ -11,7 +11,7 @@
 | macOS Big Sur (11)                | x86_64        |	3.10    |
 | macOS Monterey (12)               |	x86_64 or arm64 | 3.10  |
 
-* Installing Pydrake via pip:
+* Installing Pydrake via pip: [Drake Installation Guide](https://drake.mit.edu/pip.html#stable-releases)
     1. Create a virtual environment and install Drake:
     ```
     python3 -m venv env
