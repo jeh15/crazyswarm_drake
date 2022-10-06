@@ -3,11 +3,12 @@
 ## Setup Note:
 
 * Refer to [Pydrake Installation](https://drake.mit.edu/installation.html) to find whats compatable with your system.
-    *   | Operating System                  | Architecture  | Python    |
-        | Ubuntu 20.04 LTS (Focal Fossa)    | x86_64        | 3.8       |
-        | Ubuntu 22.04 LTS (Jammy Jellyfish)| x86_64        | 3.10      |
-        | macOS Big Sur (11)                | x86_64        |	3.10    |
-        | macOS Monterey (12)               |	x86_64 or arm64 | 3.10  |
+| Operating System                  | Architecture  | Python    |
+| -------------                     | ------------- | ----------|
+| Ubuntu 20.04 LTS (Focal Fossa)    | x86_64        | 3.8       |
+| Ubuntu 22.04 LTS (Jammy Jellyfish)| x86_64        | 3.10      |
+| macOS Big Sur (11)                | x86_64        |	3.10    |
+| macOS Monterey (12)               |	x86_64 or arm64 | 3.10  |
 
 * Installing Pydrake via pip:
     1. Create a virtual environment and install Drake:
