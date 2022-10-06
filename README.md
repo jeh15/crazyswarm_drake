@@ -3,6 +3,7 @@
 ## Setup Note:
 
 * Refer to [Pydrake Installation](https://drake.mit.edu/installation.html) to find whats compatable with your system.
+
 | Operating System                  | Architecture  | Python    |
 | -------------                     | ------------- | ----------|
 | Ubuntu 20.04 LTS (Focal Fossa)    | x86_64        | 3.8       |
