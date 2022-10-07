@@ -9,7 +9,7 @@ To use this you will need:
 
    ``Docker >= 19.03`` (recommended, but some distributions may include older versions of Docker. The minimum supported version is 1.12)
 
-   NVIDIA GPU with ``Architecture >= Kepler (or compute capability 3.0)``
+   ``NVIDIA GPU with Architecture >= Kepler (or compute capability 3.0)``
 
    ``NVIDIA Linux drivers >= 418.81.07`` (Note that older driver releases or branches are unsupported.)
 
