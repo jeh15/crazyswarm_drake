@@ -2,25 +2,13 @@
 
 ## Setup Note:
 
-* Refer to [Pydrake Installation](https://drake.mit.edu/installation.html) to find whats compatable with your system.
+* Everything is contained in a Dockerfile which can be pulled: ``docker pull jeh15/drone:latest``
+* This Docker is built using ``nvidia/cuda`` as a base.
+* To use this you, follow these installation instructions:
 
-| Operating System                  | Architecture  | Python    |
-| -------------                     | ------------- | ----------|
-| Ubuntu 20.04 LTS (Focal Fossa)    | x86_64        | 3.8       |
-| Ubuntu 22.04 LTS (Jammy Jellyfish)| x86_64        | 3.10      |
-| macOS Big Sur (11)                | x86_64        |	3.10    |
-| macOS Monterey (12)               |	x86_64 or arm64 | 3.10  |
-
-* Installing Pydrake via pip: [Drake Installation Guide](https://drake.mit.edu/pip.html#stable-releases)
-    1. Create a virtual environment and install Drake:
-    ```
-    python3 -m venv env
-    env/bin/pip install --upgrade pip
-    env/bin/pip install drake
-    ```
-    2. Depending on your system you may need to install additional dependencies.
-    3. Activate the virtual environment:
-    ```
-    source env/bin/activate
-    ```
-    (Note: Remember to source the virtual environment)
+* Download Docker and follow install instructions: https://docs.docker.com/desktop/install/linux-install/
+    * Do not forget to add User to Docker group: sudo usermod -aG docker [computer-user-name]
+    (You will need to restart for this to take effect: sudo reboot)
+    
+* Follow NVidia's instructions for nvidia-docker2: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+    Do not forget pre-requisites: https://docs.nvidia.com/datacenter/tesla/tesla-installation-notes/index.html
