@@ -24,3 +24,13 @@ If you meet the above system requiremes use these following installation instruc
 ## How to run:
 
 Everything is contained in a Dockerfile. To use simply run ``./run_container.sh``
+
+## Developing:
+Code Style Guide:
+
+Use the same conventions as documented:
+  * Python: https://google.github.io/styleguide/pyguide.html
+  * C++:    https://google.github.io/styleguide/cppguide.html
+  
+### Naming Convention reference:
+![Naming Reference](/imgs/naming_convention_reference.png)
