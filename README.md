@@ -4,7 +4,8 @@
 This Docker is built using ``nvidia/cuda`` as a base. 
 
 To use this you will need:
-   GNU/Linux x86_64 with ``kernel version > 3.10``
+
+   ``GNU/Linux x86_64 with kernel version > 3.10``
 
    ``Docker >= 19.03`` (recommended, but some distributions may include older versions of Docker. The minimum supported version is 1.12)
 
