@@ -2,7 +2,7 @@
 
 ## Setup Note:
 
-Everything is contained in a Dockerfile which can be pulled: ``docker pull jeh15/drone:latest``
+Everything is contained in a Dockerfile. For easy use run ``./runcontainer.sh``
 
 This Docker is built using ``nvidia/cuda`` as a base.
 
