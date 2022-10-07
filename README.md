@@ -1,9 +1,6 @@
 # Crazyflie Drone implementation using Crazyswarm and Pydrake
 
-## Setup Note:
-
-Everything is contained in a Dockerfile. For easy use run ``./runcontainer.sh``
-
+## Pre-requisite:
 This Docker is built using ``nvidia/cuda`` as a base.
 
 To use this you, follow these installation instructions:
@@ -13,3 +10,7 @@ To use this you, follow these installation instructions:
     
 * Follow NVidia's instructions for nvidia-docker2: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
     Do not forget pre-requisites: https://docs.nvidia.com/datacenter/tesla/tesla-installation-notes/index.html
+
+## How to run:
+
+Everything is contained in a Dockerfile. For easy use run ``./run_container.sh``
