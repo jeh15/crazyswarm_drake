@@ -23,4 +23,4 @@ If you meet the above system requiremes use these following installation instruc
 
 ## How to run:
 
-Everything is contained in a Dockerfile. For easy use run ``./run_container.sh``
+Everything is contained in a Dockerfile. To use simply run ``./run_container.sh``
