@@ -1,7 +1,7 @@
 from pydrake.solvers import MathematicalProgram, Solve
 import numpy as np
 import time
-
+import pdb
 def main():
     # Initialize MathematicalProgram:
     prog = MathematicalProgram()
@@ -28,6 +28,8 @@ def main():
 
     # Create Convenient Arrays:
     q = np.vstack(np.array([x, y, dx, dy, ux, uy]))
+
+    _test_var = np.vstack(np.array([x, dx])).flatten()
 
     # Initial Condition Constraints:
     bounds = np.zeros(full_size, dtype=float)
@@ -60,21 +62,21 @@ def main():
 
 
     # # Collocation Constraints: (Separated)
-    bounds = np.zeros(2, dtype=float)
-    _A_collocation = np.array([[1, -1, dt, 0, 0], [0, 0, 1 - friction / mass * dt, -1, dt / mass]], dtype=float)
-    for i in range(num_nodes - 1):
-        prog.AddLinearConstraint(
-            A=_A_collocation,
-            lb=bounds,
-            ub=bounds,
-            vars=np.array([x[i], x[i+1], dx[i], dx[i+1], ux[i]])
-        )
-        prog.AddLinearConstraint(
-            A=_A_collocation,
-            lb=bounds,
-            ub=bounds,
-            vars=np.array([y[i], y[i+1], dy[i], dy[i+1], uy[i]])
-        )
+    # bounds = np.zeros(2, dtype=float)
+    # _A_collocation = np.array([[1, -1, dt, 0, 0], [0, 0, 1 - friction / mass * dt, -1, dt / mass]], dtype=float)
+    # for i in range(num_nodes - 1):
+    #     prog.AddLinearConstraint(
+    #         A=_A_collocation,
+    #         lb=bounds,
+    #         ub=bounds,
+    #         vars=np.array([x[i], x[i+1], dx[i], dx[i+1], ux[i]])
+    #     )
+    #     prog.AddLinearConstraint(
+    #         A=_A_collocation,
+    #         lb=bounds,
+    #         ub=bounds,
+    #         vars=np.array([y[i], y[i+1], dy[i], dy[i+1], uy[i]])
+    #     )
 
     # # Collocation Constraints: (Combined)
     # bounds = np.zeros(4, dtype=float)
@@ -92,25 +94,53 @@ def main():
     #         vars=np.array([x[i], x[i+1], dx[i], dx[i+1], ux[i], y[i], y[i+1], dy[i], dy[i+1], uy[i]])
     #     )
 
-    # Collocation Constraints: Lambda Functions
-    # def collocation_func(z):
-    #     _defect = z[0][1:] - z[0][:-1] - z[1][:-1] * dt
+    # Collocation Constraints: Python Function
+    def collocation_func(z):
+        _defect = z[0][1:] - z[0][:-1] - z[1][:-1] * dt
+        return _defect
+
+    ddx, ddy = (ux - friction * dx) / mass, (uy - friction * dy) / mass
+    _x_defect   = collocation_func([x,  dx])
+    _dx_defect  = collocation_func([dx, ddx])
+    _y_defect   = collocation_func([y,  dy])
+    _dy_defect  = collocation_func([dy, ddy])
+    _expr_array = np.asarray([_x_defect, _dx_defect, _y_defect, _dy_defect]).flatten()
+
+    bounds = np.zeros(4 * (num_nodes-1), dtype=float)
+    defect_constraint = prog.AddLinearConstraint(
+        _expr_array, 
+        lb=bounds, 
+        ub=bounds 
+        )
+
+    # Collocation Constraint: np.vectorize
+    # def collocation_func(z0, z1, dz):
+    #     _defect = z1 - z0 - dz * dt
     #     return _defect
 
-    # bounds = np.zeros(1, dtype=float)
-    # linear_const = prog.AddLinearConstraint(
-    #     collocation_func, 
+    # vfunc = np.vectorize(collocation_func)
+
+    # ddx, ddy = (ux - friction * dx) / mass, (uy - friction * dy) / mass
+    # _x_defect   = vfunc(x[:-1], x[1:], dx[:-1])
+    # _dx_defect  = vfunc(dx[:-1], dx[1:], ddx[:-1])
+    # _y_defect   = vfunc(y[:-1], y[1:], dy[:-1])
+    # _dy_defect  = vfunc(dy[:-1], dy[1:], ddy[:-1])
+    # _expr_array = np.hstack([_x_defect, _dx_defect, _y_defect, _dy_defect])
+
+    # bounds = np.zeros(4 * (num_nodes-1), dtype=float)
+    # defect_constraint = prog.AddLinearConstraint(
+    #     _expr_array, 
     #     lb=bounds, 
-    #     ub=bounds, 
-    #     vars=[x[:2], dx[0]])
+    #     ub=bounds 
+    #     )
 
     # Collocation Constraints: (Linear Constraints via forloop)
-    for i in range(num_nodes - 1):
-        _ux, _uy = (ux[i] - friction * dx[i]) / mass, (uy[i] - friction * dy[i]) / mass
-        prog.AddLinearConstraint(x[i] + dx[i] * dt == x[i+1])
-        prog.AddLinearConstraint(dx[i] + _ux*dt == dx[i+1])
-        prog.AddLinearConstraint(y[i] + dy[i] * dt == y[i+1])
-        prog.AddLinearConstraint(dy[i] + _uy*dt == dy[i+1])
+    # for i in range(num_nodes - 1):
+    #     _ux, _uy = (ux[i] - friction * dx[i]) / mass, (uy[i] - friction * dy[i]) / mass
+    #     prog.AddLinearConstraint(x[i] + dx[i] * dt == x[i+1])
+    #     prog.AddLinearConstraint(dx[i] + _ux*dt == dx[i+1])
+    #     prog.AddLinearConstraint(y[i] + dy[i] * dt == y[i+1])
+    #     prog.AddLinearConstraint(dy[i] + _uy*dt == dy[i+1])
 
     # Objective Function:
     x_d, y_d = 1, 1
