@@ -10,13 +10,17 @@ import drake_figure8
 
 # Create a simple block diagram containing our system.
 builder = DiagramBuilder()
+
 # Custom Reference Trajectory LeafSystem:
 reference_trajectory = builder.AddSystem(drake_figure8.Trajectory_Figure8())
+
 # CrazySwarm API LeafSystem:
 driver = crazyswarm_class.CrazyswarmSystem()
 system = builder.AddSystem(driver)
+
 # Connect Reference Trajectory to CrazySwarm:
 builder.Connect(reference_trajectory.get_output_port(0), system.get_input_port(0))
+
 # Logger:
 logger = LogVectorOutput(system.get_output_port(0), builder)
 diagram = builder.Build()

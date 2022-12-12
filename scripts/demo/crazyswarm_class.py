@@ -1,12 +1,8 @@
 import numpy as np
-# import asyncio
-# from concurrent.futures import ProcessPoolExecutor
-# import multiprocessing
 import time
 
 from pydrake.systems.framework import LeafSystem, PublishEvent, TriggerType
 from pycrazyswarm import *
-import uav_trajectory
 
 
 class CrazyswarmSystem(LeafSystem):
@@ -17,11 +13,9 @@ class CrazyswarmSystem(LeafSystem):
         self._RUNTIME_RATE = self._CONTROL_RATE / 2.0
 
         # Declare Input: Control Input Package
-        """Gets full state trajectory from DirectCollocation"""
         self.DeclareVectorInputPort("reference_trajectory", 3)
 
         # Declare Output: VICON Data Package
-        """Outputs trajectory of drone during execute_trajectory"""
         self.DeclareVectorOutputPort("position", 3, self.output)
         
         # Declare Initialization Event to Init CrazySwarm:
@@ -42,6 +36,9 @@ class CrazyswarmSystem(LeafSystem):
                 print(f"Time Helper connected...")
             else:
                 print(f"Time Helper not connected...")
+
+            # Save Ground Position:
+            self._land_position = self.cf.position()
 
             # Take Off Script:
             target_height = 0.25
@@ -73,30 +70,6 @@ class CrazyswarmSystem(LeafSystem):
                 #Check Runtime Allocation:
                 _RUNTIME_FLAG = (time.perf_counter() - _start) > self._RUNTIME_RATE
 
-        """ OLD Update Event """
-        # def on_periodic(context, event):
-        #     print(f"Periodic Update: {time.perf_counter()}")
-
-        #     # # Forced Control Rate:
-        #     # _start = time.perf_counter()
-        #     # self.pos = self.cf.position() + np.array([0.1, 0.0, 0.0], dtype=float)
-        #     # self.cf.cmdPosition(self.pos, yaw=0)
-
-        #     # # Allocated Execution Time:
-        #     # _SLEEP = self._RUNTIME_RATE - (time.perf_counter() - _start)
-        #     # if _SLEEP < 0: _SLEEP = 0 
-        #     # self.timeHelper.sleep(_SLEEP)
-
-        #     # Forced Control Rate While Loop:
-        #     _start = time.perf_counter()
-        #     _RUNTIME_FLAG = False
-        #     while not _RUNTIME_FLAG:
-        #         self.pos = self._get_trajectory(context) + self._initial_position
-        #         self.cf.cmdPosition(self.pos, yaw=0)
-
-        #         #Check Runtime Allocation:
-        #         _RUNTIME_FLAG = (time.perf_counter() - _start) > self._RUNTIME_RATE
-
         self.DeclarePeriodicEvent(period_sec=self._CONTROL_RATE,
                     offset_sec=0.0,
                     event=PublishEvent(
@@ -105,17 +78,21 @@ class CrazyswarmSystem(LeafSystem):
                         )
                     )
 
+
     # Output Port Callback:
     def output(self, context, pos_data):
         pos_data.SetFromVector(self.pos)
     
-    # # Generate Circle Trajectory:
-    # def _get_trajectory(self, context):
-    #     _r = 0.5
-    #     _time = context.get_time()
-    #     _x =  _r  * np.cos(_time) - _r
-    #     _y =  _r  * np.sin(_time)
-    #     return np.array([_x, _y, 0.25], dtype=float)
+        # Declare Forced Publish Event: End Sequence
+    def execute_landing_sequence(self):
+        # Land Position:
+        target_height = self._land_position[-1]
+        # Land Sequence:
+        self.cf.notifySetpointsStop()
+        self.cf.land(targetHeight=target_height, duration=3.0)
+        self.timeHelper.sleep(3.0)
+        # Stop Motors:
+        self.cf.cmdStop()
 
     """
     TODO: Add this as update event
