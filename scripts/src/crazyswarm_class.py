@@ -2,6 +2,13 @@ import numpy as np
 import time
 
 from pydrake.systems.framework import LeafSystem, PublishEvent, TriggerType
+
+import sys
+import os
+from os.path import dirname, abspath
+dir = os.path.dirname(os.getcwd())
+p_dir = dirname(dirname(abspath(__file__)))
+sys.path.inset(0, p_dir)
 from pycrazyswarm import *
 
 
@@ -80,7 +87,6 @@ class CrazyswarmSystem(LeafSystem):
         self.cf.land(0.0, 1.0, groupMask=0)
         # Stop Motors:
         self.cf.stop(groupMask=0)
-
 
 
     # Output Port Callback:
