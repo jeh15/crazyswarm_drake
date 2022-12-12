@@ -2,13 +2,6 @@ import numpy as np
 import time
 
 from pydrake.systems.framework import LeafSystem, PublishEvent, TriggerType
-
-import sys
-import os
-from os.path import dirname, abspath
-dir = os.path.dirname(os.getcwd())
-p_dir = dirname(dirname(abspath(__file__)))
-sys.path.inset(0, p_dir)
 from pycrazyswarm import *
 
 
@@ -43,6 +36,9 @@ class CrazyswarmSystem(LeafSystem):
                 print(f"Time Helper connected...")
             else:
                 print(f"Time Helper not connected...")
+
+            # Save Ground Position:
+            self._land_position = self.cf.position()
 
             # Take Off Script:
             target_height = 0.25
@@ -82,17 +78,21 @@ class CrazyswarmSystem(LeafSystem):
                         )
                     )
 
-    def __del__(self):
-        # Land Sequence:
-        self.cf.land(0.0, 1.0, groupMask=0)
-        # Stop Motors:
-        self.cf.stop(groupMask=0)
-
 
     # Output Port Callback:
     def output(self, context, pos_data):
         pos_data.SetFromVector(self.pos)
     
+        # Declare Forced Publish Event: End Sequence
+    def execute_landing_sequence(self):
+        # Land Position:
+        target_height = self._land_position[-1]
+        # Land Sequence:
+        self.cf.notifySetpointsStop()
+        self.cf.land(targetHeight=target_height, duration=3.0)
+        self.timeHelper.sleep(3.0)
+        # Stop Motors:
+        self.cf.cmdStop()
 
     """
     TODO: Add this as update event
