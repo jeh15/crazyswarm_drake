@@ -14,7 +14,7 @@ To use this you will need:
 
    ``NVIDIA Linux drivers >= 418.81.07`` (Note that older driver releases or branches are unsupported.)
 
-If you meet the above system requiremes use these following installation instructions:
+If you meet the above system requirements use these following installation instructions:
 * Download Docker and follow install instructions: https://docs.docker.com/desktop/install/linux-install/
     * Do not forget to add User to Docker group: sudo usermod -aG docker [computer-user-name]
     (You will need to restart for this to take effect: sudo reboot)
