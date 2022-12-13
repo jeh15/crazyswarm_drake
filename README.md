@@ -1,7 +1,7 @@
 # Crazyflie Drone implementation using Crazyswarm and Pydrake
 For simulations you can test your code via the Docker container. For hardware tests you will need to upload your code to the drone computer.
 
-## Docker: Pre-requisites and Requirements:
+## Docker: Pre-requisites and Requirements
 This Docker is built using ``nvidia/cuda`` as a base. 
 
 To use this you will need:
