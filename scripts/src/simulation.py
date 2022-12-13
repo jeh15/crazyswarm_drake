@@ -6,20 +6,29 @@ from pydrake.systems.primitives import LogVectorOutput, ConstantVectorSource
 
 # Custom LeafSystems:
 import crazyswarm_class
-import drake_figure8
+import motion_planner
+import reference_trajectory
 
 # Create a simple block diagram containing our system.
 builder = DiagramBuilder()
 
 # Custom Reference Trajectory LeafSystem:
-reference_trajectory = builder.AddSystem(drake_figure8.Trajectory_Figure8())
+reference = builder.AddSystem(reference_trajectory.FigureEight())
+
+# Motion Planner Leaf System:
+driver_planner = motion_planner.QuadraticProgram()
+planner = builder.AddSystem(driver_planner)
 
 # CrazySwarm API LeafSystem:
-driver = crazyswarm_class.CrazyswarmSystem()
-system = builder.AddSystem(driver)
+driver_system = crazyswarm_class.CrazyswarmSystem()
+system = builder.AddSystem(driver_system)
 
-# Connect Reference Trajectory to CrazySwarm:
-builder.Connect(reference_trajectory.get_output_port(0), system.get_input_port(0))
+# Connect Reference Trajectory to Motion Planner:
+builder.Connect(reference.get_output_port(0), driver_planner.target_input)
+
+# Connect Motion Planner to CrazySwarm:
+builder.Connect(system.get_output_port(0), driver_planner.initial_condition_input)
+builder.Connect(driver_planner.get_output_port(0), system.get_input_port(0)) 
 
 # Logger:
 logger = LogVectorOutput(system.get_output_port(0), builder)
@@ -45,10 +54,10 @@ while next_time_step <= FINAL_TIME:
         simulator.AdvanceTo(next_time_step)
         next_time_step += dt
     except:
-        driver.execute_landing_sequence()
+        driver_system.execute_landing_sequence()
 
 # Call End Event:
-driver.execute_landing_sequence()
+driver_system.execute_landing_sequence()
 
 _end = time.perf_counter() - _start
 print(f"Time: {_end}")

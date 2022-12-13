@@ -5,7 +5,7 @@ from pydrake.systems.framework import LeafSystem, PublishEvent, TriggerType
 
 
 
-class Trajectory_Figure8(LeafSystem):
+class FigureEight(LeafSystem):
     def __init__(self):
         LeafSystem.__init__(self)
         
@@ -30,7 +30,7 @@ class Trajectory_Figure8(LeafSystem):
         # Declare Update Event: Current Trajectory
         def on_periodic(context, event):
             _x, _y = self._figure_eight_trajectory(context, event)
-            self.trajectory = np.array([_x, _y, 0.0], dtype=float)
+            self.trajectory = np.array([_x, _y], dtype=float)
 
         self.DeclarePeriodicEvent(period_sec=self._UPDATE_RATE,
                     offset_sec=0.0,

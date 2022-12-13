@@ -1,12 +1,13 @@
 import numpy as np
 import time
 
-from pydrake.systems.framework import LeafSystem, PublishEvent, TriggerType
 from pydrake.solvers import MathematicalProgram, Solve
+from pydrake.systems.framework import LeafSystem, PublishEvent, TriggerType
+
+import pdb
 
 
-
-class Trajectory_Figure8(LeafSystem):
+class QuadraticProgram(LeafSystem):
     def __init__(self):
         LeafSystem.__init__(self)
         
@@ -36,7 +37,7 @@ class Trajectory_Figure8(LeafSystem):
         def on_periodic(context, event):
             self.update_qp()
             self.solve_qp()
-            self.trajectory = solution
+            pdb.set_trace()
 
         self.DeclarePeriodicEvent(period_sec=self._UPDATE_RATE,
                     offset_sec=0.0,
@@ -80,7 +81,12 @@ class Trajectory_Figure8(LeafSystem):
 
         # Initial Condition Constraints:
         initial_conditions = self.initial_condition_input.Eval(context)
-        bounds = initial_conditions
+        """
+        Throw away z indicies
+        TO DO: Update to 3D model
+        """
+        z_index = [2, 5, 8]
+        bounds = np.delete(initial_conditions, z_index)
         _A_initial_condition = np.eye(full_size, dtype=float)
         constraint_initial_condition = self.prog.AddLinearConstraint(
             A=_A_initial_condition,
@@ -119,11 +125,12 @@ class Trajectory_Figure8(LeafSystem):
         # Objective Function:
         target_positions = self.target_input.Eval(context)
         _error = target_positions - q[:2, :]
-        objective_task = self.prog.AddQuadraticCost(np.sum(_error ** 2))
+        _objective_task = self.prog.AddQuadraticCost(np.sum(_error ** 2))
 
     def solve_qp(self):
         # Solve the program.
         self.solution = Solve(self.prog)
+        pdb.set_trace()
 
     """
     TO DO:

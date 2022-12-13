@@ -4,6 +4,9 @@ import time
 from pydrake.systems.framework import LeafSystem, PublishEvent, TriggerType
 from pycrazyswarm import *
 
+import rospy
+from crazyswarm.msg import GenericLogData
+
 
 class CrazyswarmSystem(LeafSystem):
     def __init__(self):
@@ -16,7 +19,7 @@ class CrazyswarmSystem(LeafSystem):
         self.DeclareVectorInputPort("reference_trajectory", 3)
 
         # Declare Output: VICON Data Package
-        self.DeclareVectorOutputPort("position", 3, self.output)
+        self.DeclareVectorOutputPort("position", 9, self.output)
         
         # Declare Initialization Event to Init CrazySwarm:
         def on_initialize(context, event):
@@ -37,6 +40,9 @@ class CrazyswarmSystem(LeafSystem):
             else:
                 print(f"Time Helper not connected...")
 
+            # Define Suscriber Callback for State Estimation:
+            rospy.Subscriber("/cf4/log1", GenericLogData, subscriber_callback)
+
             # Save Ground Position:
             self._land_position = self.cf.position()
 
@@ -49,7 +55,8 @@ class CrazyswarmSystem(LeafSystem):
             self._initial_position = self.cf.position()
 
             # Initialize Position:
-            self.pos = self._initial_position
+            self.target_position = self._initial_position
+            self.position = self._initial_position
 
         self.DeclareInitializationEvent(
             event=PublishEvent(
@@ -64,8 +71,8 @@ class CrazyswarmSystem(LeafSystem):
             _RUNTIME_FLAG = False
             while not _RUNTIME_FLAG:
                 input_vector = self.get_input_port().Eval(context)
-                self.pos = input_vector + self._initial_position
-                self.cf.cmdPosition(self.pos, yaw=0)
+                self.target_position = input_vector + self._initial_position
+                self.cf.cmdPosition(self.target_position , yaw=0)
 
                 #Check Runtime Allocation:
                 _RUNTIME_FLAG = (time.perf_counter() - _start) > self._RUNTIME_RATE
@@ -78,12 +85,26 @@ class CrazyswarmSystem(LeafSystem):
                         )
                     )
 
+        # ROS Subscriber Callback: Estimated Velocity and Acceleration
+        def subscriber_callback(data):
+            _unit_conversion = 9.80665
+            self.estimated_states = np.array(
+                [   data.values[0]                   , data.values[1]                   , data.values[2],
+                    data.values[3] * _unit_conversion, data.values[4] * _unit_conversion, data.values[5] * _unit_conversion],
+                dtype=float,
+            )
+
 
     # Output Port Callback:
-    def output(self, context, pos_data):
-        pos_data.SetFromVector(self.pos)
+    def output(self, context, output_data):
+        # Get Current VICON Positions:
+        self.position = self.cf.position()
+        # Combine with Estimated States:
+        self.full_state = np.concatenate([self.position, self.estimated_states], axis=0, dtype=float)
+        # Send Full State Estimates to Output:
+        output_data.SetFromVector(self.full_state)
     
-        # Declare Forced Publish Event: End Sequence
+    # Landing Sequence:
     def execute_landing_sequence(self):
         # Land Position:
         target_height = self._land_position[-1]
