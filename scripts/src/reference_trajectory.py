@@ -10,15 +10,15 @@ class FigureEight(LeafSystem):
         LeafSystem.__init__(self)
         
         # Class Parameters:
-        self._UPDATE_RATE = 1.0 / 500.0 # 500 Hz -> 2 ms
+        self._UPDATE_RATE = 1.0 / 100.0 # 100 Hz -> 2 ms
 
         # Declare Output: Trajectory Info
         """Outputs reference trajectory"""
-        self.DeclareVectorOutputPort("trajectory", 3, self.output)
+        self.DeclareVectorOutputPort("trajectory", 2, self.output)
         
         # Declare Initialization Event:
         def on_initialize(context, event):
-            self.trajectory = np.array([0.0, 0.0, 0.0], dtype=float)
+            self.trajectory = np.array([0.0, 0.0], dtype=float)
 
         self.DeclareInitializationEvent(
             event=PublishEvent(

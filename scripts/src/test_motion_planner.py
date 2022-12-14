@@ -1,11 +1,11 @@
 import matplotlib.pyplot as plt
+import numpy as np
 import time
 from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import DiagramBuilder
 from pydrake.systems.primitives import LogVectorOutput, ConstantVectorSource
 
 # Custom LeafSystems:
-import crazyswarm_class
 import motion_planner
 import reference_trajectory
 
@@ -19,19 +19,13 @@ reference = builder.AddSystem(reference_trajectory.FigureEight())
 driver_planner = motion_planner.QuadraticProgram()
 planner = builder.AddSystem(driver_planner)
 
-# CrazySwarm API LeafSystem:
-driver_system = crazyswarm_class.CrazyswarmSystem()
-system = builder.AddSystem(driver_system)
-
 # Connect Reference Trajectory to Motion Planner:
+dummy = builder.AddSystem(ConstantVectorSource(np.zeros((9, 1), dtype=float)))
+builder.Connect(dummy.get_output_port(0), planner.get_input_port(driver_planner.initial_condition_input))
 builder.Connect(reference.get_output_port(0), planner.get_input_port(driver_planner.target_input))
 
-# Connect Motion Planner to CrazySwarm:
-builder.Connect(system.get_output_port(0), planner.get_input_port(driver_planner.initial_condition_input))
-builder.Connect(planner.get_output_port(0), system.get_input_port(0)) 
-
 # Logger:
-logger = LogVectorOutput(system.get_output_port(0), builder)
+logger = LogVectorOutput(planner.get_output_port(0), builder)
 diagram = builder.Build()
 
 # Set the initial conditions, x(0).
@@ -49,15 +43,9 @@ next_time_step = dt
 
 _start = time.perf_counter()
 while next_time_step <= FINAL_TIME:
-    try:
-        print(f"Drake Real Time Rate: {simulator.get_actual_realtime_rate()}") 
-        simulator.AdvanceTo(next_time_step)
-        next_time_step += dt
-    except:
-        driver_system.execute_landing_sequence()
-
-# Call End Event:
-driver_system.execute_landing_sequence()
+    print(f"Drake Real Time Rate: {simulator.get_actual_realtime_rate()}") 
+    simulator.AdvanceTo(next_time_step)
+    next_time_step += dt
 
 _end = time.perf_counter() - _start
 print(f"Time: {_end}")

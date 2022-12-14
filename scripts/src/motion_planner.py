@@ -1,7 +1,8 @@
 import numpy as np
 import time
+import copy
 
-from pydrake.solvers import MathematicalProgram, Solve
+from pydrake.all import MathematicalProgram, Solve
 from pydrake.systems.framework import LeafSystem, PublishEvent, TriggerType
 
 import pdb
@@ -20,7 +21,7 @@ class QuadraticProgram(LeafSystem):
 
         # Declare Output: Trajectory Info
         """Outputs reference trajectory"""
-        self.DeclareVectorOutputPort("trajectory", 3, self.output)
+        self.DeclareVectorOutputPort("trajectory", 63, self.output)
         
         # Declare Initialization Event:
         def on_initialize(context, event):
@@ -35,9 +36,7 @@ class QuadraticProgram(LeafSystem):
 
         # Declare Update Event: Solve Quadratic Program
         def on_periodic(context, event):
-            self.update_qp()
-            self.solve_qp()
-            pdb.set_trace()
+            self.solve_qp(context, event)
 
         self.DeclarePeriodicEvent(period_sec=self._UPDATE_RATE,
                     offset_sec=0.0,
@@ -52,7 +51,7 @@ class QuadraticProgram(LeafSystem):
         get_trajectory.SetFromVector(self.trajectory)
 
     # Methods:
-    def update_qp(self, context, event):
+    def solve_qp(self, context, event):
         # Initialize MathematicalProgram:
         self.prog = MathematicalProgram()
 
@@ -77,10 +76,10 @@ class QuadraticProgram(LeafSystem):
         uy  = self.prog.NewContinuousVariables(num_nodes, "uy")
 
         # Create Convenient Arrays:
-        q = np.vstack(np.array([x, y, dx, dy, ux, uy]))
+        _s = np.vstack(np.array([x, y, dx, dy, ux, uy]))
 
         # Initial Condition Constraints:
-        initial_conditions = self.initial_condition_input.Eval(context)
+        initial_conditions = self.get_input_port(self.initial_condition_input).Eval(context)
         """
         Throw away z indicies
         TO DO: Update to 3D model
@@ -92,7 +91,7 @@ class QuadraticProgram(LeafSystem):
             A=_A_initial_condition,
             lb=bounds,
             ub=bounds,
-            vars=q[:, 0]
+            vars=_s[:, 0]
         )
 
         # Add Lower and Upper Bounds: (Fastest)
@@ -123,19 +122,30 @@ class QuadraticProgram(LeafSystem):
             )
 
         # Objective Function:
-        target_positions = self.target_input.Eval(context)
-        _error = target_positions - q[:2, :]
+        target_positions = self.get_input_port(self.target_input).Eval(context)
+        target_positions = np.reshape(target_positions, (2, 1))
+        _error =  target_positions - _s[:2, :]
         _objective_task = self.prog.AddQuadraticCost(np.sum(_error ** 2))
 
-    def solve_qp(self):
         # Solve the program.
         self.solution = Solve(self.prog)
-        pdb.set_trace()
+
+        # Store Solution for Output:
+        # self.trajectory = np.array([
+        #     self.solution.GetSolution(x) , self.solution.GetSolution(y),
+        #     self.solution.GetSolution(dx), self.solution.GetSolution(dy),
+        #     self.solution.GetSolution(ux), self.solution.GetSolution(uy)
+        #     ], dtype=float)
+
+        self.trajectory = np.vstack([
+            self.solution.GetSolution(x), self.solution.GetSolution(y), np.zeros((num_nodes,), dtype=float)
+            ]).flatten()
+
+        # self.trajectory = np.array([
+        #     self.solution.GetSolution(x), self.solution.GetSolution(y), np.zeros((num_nodes, 1), dtype=float)
+        #     ], dtype=float).flatten()
 
     """
     TO DO:
-        1. Add trajectory storage method for crazyfly to parse
-        2. Add state approximations in crazyfly for full state
-        3. Add target reference
-        4. Figure out how to regulate the motion planner update
+        1. Remake block move example and verify that this works before adding CrazySwarm API
     """

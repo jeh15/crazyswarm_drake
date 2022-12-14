@@ -1,4 +1,4 @@
-from pydrake.solvers import MathematicalProgram, Solve
+from pydrake.all import MathematicalProgram, Solve
 import numpy as np
 import time
 import pdb
@@ -152,6 +152,7 @@ def main():
     result = Solve(prog)
     print(f"optimal solution x: {result.GetSolution(x)}")
     print(f"optimal solution y: {result.GetSolution(y)}")
+    print(f"optimal solution dx: {result.GetSolution(dx)}")
     print(f"optimal cost: {result.get_optimal_cost()}")
 
 if __name__ == "__main__":
