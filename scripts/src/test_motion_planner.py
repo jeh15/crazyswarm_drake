@@ -5,27 +5,46 @@ from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import DiagramBuilder
 from pydrake.systems.primitives import LogVectorOutput, ConstantVectorSource
 
+# DEBUG:
+import pdb
+
 # Custom LeafSystems:
 import motion_planner
 import reference_trajectory
+import trajectory_parser
+import crazyswarm_class
 
-# Create a simple block diagram containing our system.
+# Create a block diagram containing our system.
 builder = DiagramBuilder()
 
-# Custom Reference Trajectory LeafSystem:
+# Reference Trajectory:
 reference = builder.AddSystem(reference_trajectory.FigureEight())
 
-# Motion Planner Leaf System:
+# Trajectory Parser:
+parser = builder.AddSystem(trajectory_parser.TrajectoryParser())
+
+# Motion Planner:
 driver_planner = motion_planner.QuadraticProgram()
 planner = builder.AddSystem(driver_planner)
 
+# CrazySwarm API:
+driver_system = crazyswarm_class.CrazyswarmSystem()
+system = builder.AddSystem(driver_system)
+
 # Connect Reference Trajectory to Motion Planner:
-dummy = builder.AddSystem(ConstantVectorSource(np.zeros((9, 1), dtype=float)))
-builder.Connect(dummy.get_output_port(0), planner.get_input_port(driver_planner.initial_condition_input))
 builder.Connect(reference.get_output_port(0), planner.get_input_port(driver_planner.target_input))
 
+# Connect Motion Planner to Trajectory Parser:
+builder.Connect(planner.get_output_port(0), parser.get_input_port(0))
+
+# Connect Trajectory Parser to CrazySwarm:
+builder.Connect(parser.get_output_port(0), system.get_input_port(0))
+
+# Connect CrazySwarm to Motion Planner:
+builder.Connect(system.get_output_port(0), planner.get_input_port(driver_planner.initial_condition_input))
+
 # Logger:
-logger = LogVectorOutput(planner.get_output_port(0), builder)
+logger = LogVectorOutput(system.get_output_port(0), builder)
 diagram = builder.Build()
 
 # Set the initial conditions, x(0).
@@ -54,6 +73,7 @@ print(f"Time: {_end}")
 log = logger.FindLog(context)
 plt.figure()
 plt.plot(log.sample_times(), log.data().transpose())
+pdb.set_trace()
 plt.xlabel('t')
 plt.ylabel('x(t)')
 plt.show()

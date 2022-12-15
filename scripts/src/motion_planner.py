@@ -11,9 +11,11 @@ import pdb
 class QuadraticProgram(LeafSystem):
     def __init__(self):
         LeafSystem.__init__(self)
-        
         # Class Parameters:
-        self._UPDATE_RATE = 1.0 / 10.0 # 10Hz -> 100 ms
+        self._UPDATE_RATE = 1.0 / 5.0
+
+        # Initialize Value: (NEEDS THIS HERE?)
+        self.trajectory = np.zeros((63,), dtype=float)
 
         # Declare Input:
         self.initial_condition_input = self.DeclareVectorInputPort("initial_condition", 9).get_index()
@@ -21,11 +23,15 @@ class QuadraticProgram(LeafSystem):
 
         # Declare Output: Trajectory Info
         """Outputs reference trajectory"""
-        self.DeclareVectorOutputPort("trajectory", 63, self.output)
+        self.DeclareVectorOutputPort(
+            "trajectory", 
+            63, 
+            self.output,
+            {self.all_input_ports_ticket()})
         
         # Declare Initialization Event:
         def on_initialize(context, event):
-            self.trajectory = np.array([0.0, 0.0, 0.0], dtype=float)
+            self.trajectory = np.zeros((63,), dtype=float)
 
         self.DeclareInitializationEvent(
             event=PublishEvent(
@@ -140,12 +146,3 @@ class QuadraticProgram(LeafSystem):
         self.trajectory = np.vstack([
             self.solution.GetSolution(x), self.solution.GetSolution(y), np.zeros((num_nodes,), dtype=float)
             ]).flatten()
-
-        # self.trajectory = np.array([
-        #     self.solution.GetSolution(x), self.solution.GetSolution(y), np.zeros((num_nodes, 1), dtype=float)
-        #     ], dtype=float).flatten()
-
-    """
-    TO DO:
-        1. Remake block move example and verify that this works before adding CrazySwarm API
-    """

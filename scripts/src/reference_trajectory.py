@@ -10,11 +10,14 @@ class FigureEight(LeafSystem):
         LeafSystem.__init__(self)
         
         # Class Parameters:
-        self._UPDATE_RATE = 1.0 / 100.0 # 100 Hz -> 2 ms
+        self._UPDATE_RATE = 1.0 / 5.0 # MATCH MOTION PLANNER INPUT
 
         # Declare Output: Trajectory Info
         """Outputs reference trajectory"""
-        self.DeclareVectorOutputPort("trajectory", 2, self.output)
+        self.DeclareVectorOutputPort("trajectory", 
+        2, 
+        self.output,
+        {self.time_ticket()})
         
         # Declare Initialization Event:
         def on_initialize(context, event):
