@@ -22,9 +22,6 @@ class TrajectoryParser(LeafSystem):
         self._time_horizon = 1.0
         self._time_trajectory = np.linspace(0.0, self._time_horizon, self._num_nodes)
 
-        # Initialize Output Values:
-        self.current_trajectory = np.zeros((3,), dtype=float)
-
         # Declare Input:
         """Input Motion Planner trajectory"""
         self.DeclareVectorInputPort("parser_input", 63)

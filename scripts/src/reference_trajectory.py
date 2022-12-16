@@ -12,15 +12,20 @@ class FigureEight(LeafSystem):
         # Class Parameters:
         self._UPDATE_RATE = 1.0 / 5.0 # MATCH MOTION PLANNER INPUT
 
+        # Initialize Output Values:
+        self.trajectory = np.zeros((2,), dtype=float)
+
         # Declare Output: Trajectory Info
         """Outputs reference trajectory"""
         self.DeclareVectorOutputPort("reference_trajectory", 
         2, 
-        self.output)
+        self.output,
+        {self.nothing_ticket()})
         
         # Declare Initialization Event:
         def on_initialize(context, event):
-            self.trajectory = np.array([0.0, 0.0], dtype=float)
+            _x, _y = self._figure_eight_trajectory(context, event)
+            self.trajectory = np.array([_x, _y], dtype=float)
 
         self.DeclareInitializationEvent(
             event=PublishEvent(

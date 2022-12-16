@@ -7,7 +7,6 @@ from pycrazyswarm import *
 import rospy
 from crazyswarm.msg import GenericLogData
 
-import pdb
 
 class CrazyswarmSystem(LeafSystem):
     def __init__(self):
@@ -16,17 +15,9 @@ class CrazyswarmSystem(LeafSystem):
         self._CONTROL_RATE = 1.0 / 100.0                # MATCH TRAJECTORY PARSER
         self._RUNTIME_RATE = self._CONTROL_RATE * 2.0
         self._OUTPUT_UPDATE_RATE = 1.0 / 5.0            # MATCH MOTION PLANNER
-        
-        # Initialize Output Values:
-        self.target_height = 0.25
-        self.full_state = np.array(
-            [
-                0, 0, self.target_height,
-                0, 0, 0,
-                0, 0, 0 
-            ], dtype=float)
 
-        # Initialize Value for ROS Subscriber:
+        # Initial Condition for OUTPUT:
+        self.full_state = np.zeros((9,), dtype=float)
         self.estimated_states = np.zeros((6,), dtype=float)
 
         # Declare Input: Control Input Package
@@ -55,13 +46,14 @@ class CrazyswarmSystem(LeafSystem):
                 print(f"Time Helper not connected...")
 
             # Define Suscriber Callback for State Estimation:
-            rospy.Subscriber("/cf4/log1", GenericLogData, subscriber_callback)
+            # rospy.Subscriber("/cf4/log1", GenericLogData, subscriber_callback)
 
             # Save Ground Position:
             self._land_position = self.cf.position()
 
             # Take Off Script:
-            self.cf.takeoff(targetHeight=self.target_height, duration=1.0)
+            target_height = 0.25
+            self.cf.takeoff(targetHeight=target_height, duration=1.0)
             self.timeHelper.sleep(1.0)
 
             # Save initial Position:
@@ -85,9 +77,6 @@ class CrazyswarmSystem(LeafSystem):
             while not _RUNTIME_FLAG:
                 input_vector = self.get_input_port(0).Eval(context)
                 self.target_position = input_vector + self._initial_position
-                
-                pdb.set_trace()
-
                 self.cf.cmdPosition(self.target_position , yaw=0)
 
                 #Check Runtime Allocation:
@@ -118,13 +107,13 @@ class CrazyswarmSystem(LeafSystem):
 
         # DO NOT USE DURING SIM:
         # ROS Subscriber Callback: Estimated Velocity and Acceleration
-        def subscriber_callback(data):
-            _unit_conversion = 9.80665
-            self.estimated_states = np.array(
-                [   data.values[0]                   , data.values[1]                   , data.values[2],
-                    data.values[3] * _unit_conversion, data.values[4] * _unit_conversion, data.values[5] * _unit_conversion],
-                dtype=float,
-            )
+        # def subscriber_callback(data):
+        #     _unit_conversion = 9.80665
+        #     self.estimated_states = np.array(
+        #         [   data.values[0]                   , data.values[1]                   , data.values[2],
+        #             data.values[3] * _unit_conversion, data.values[4] * _unit_conversion, data.values[5] * _unit_conversion],
+        #         dtype=float,
+        #     )
 
 
     # Output Port Callback:

@@ -1,53 +1,37 @@
 import matplotlib.pyplot as plt
-import numpy as np
 import time
 from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import DiagramBuilder
 from pydrake.systems.primitives import LogVectorOutput, ConstantVectorSource
 
-# DEBUG:
-import pdb
-
 # Custom LeafSystems:
+import crazyswarm_class
 import motion_planner
 import reference_trajectory
-import trajectory_parser
-import crazyswarm_class
 
-# Create a block diagram containing our system.
+# Create a simple block diagram containing our system.
 builder = DiagramBuilder()
 
-# Reference Trajectory:
-driver_reference = reference_trajectory.FigureEight()
-reference = builder.AddSystem(driver_reference)
+# Custom Reference Trajectory LeafSystem:
+reference = builder.AddSystem(reference_trajectory.FigureEight())
 
-# Trajectory Parser:
-driver_parser = trajectory_parser.TrajectoryParser()
-parser = builder.AddSystem(driver_parser)
-
-# Motion Planner:
+# Motion Planner Leaf System:
 driver_planner = motion_planner.QuadraticProgram()
 planner = builder.AddSystem(driver_planner)
 
-# CrazySwarm API:
+# CrazySwarm API LeafSystem:
 driver_system = crazyswarm_class.CrazyswarmSystem()
 system = builder.AddSystem(driver_system)
 
 # Connect Reference Trajectory to Motion Planner:
 builder.Connect(reference.get_output_port(0), planner.get_input_port(driver_planner.target_input))
 
-# Connect Motion Planner to Trajectory Parser:
-builder.Connect(planner.get_output_port(0), parser.get_input_port(0))
-
-# Connect Trajectory Parser to CrazySwarm:
-builder.Connect(parser.get_output_port(0), system.get_input_port(0))
-
-# Connect Drone Output to Motion Planner:
-# dummy = builder.AddSystem(ConstantVectorSource(np.zeros((9,), dtype=float)))
+# Connect Motion Planner to CrazySwarm:
 builder.Connect(system.get_output_port(0), planner.get_input_port(driver_planner.initial_condition_input))
+builder.Connect(planner.get_output_port(0), system.get_input_port(0)) 
 
 # Logger:
-logger = LogVectorOutput(parser.get_output_port(0), builder)
+logger = LogVectorOutput(system.get_output_port(0), builder)
 diagram = builder.Build()
 
 # Set the initial conditions, x(0).
@@ -59,7 +43,7 @@ simulator.set_target_realtime_rate(1.0)
 simulator.Initialize()
 
 # Simulate System:
-FINAL_TIME = 3.0
+FINAL_TIME = 10.0
 dt = 1.0 / 100.0
 next_time_step = dt
 
@@ -72,16 +56,16 @@ while next_time_step <= FINAL_TIME:
     except:
         driver_system.execute_landing_sequence()
 
+# Call End Event:
 driver_system.execute_landing_sequence()
 
 _end = time.perf_counter() - _start
 print(f"Time: {_end}")
 
-# Plot the results:
+# Plot the results.
 log = logger.FindLog(context)
 plt.figure()
 plt.plot(log.sample_times(), log.data().transpose())
-pdb.set_trace()
 plt.xlabel('t')
 plt.ylabel('x(t)')
 plt.show()

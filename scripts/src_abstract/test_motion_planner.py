@@ -18,12 +18,10 @@ import crazyswarm_class
 builder = DiagramBuilder()
 
 # Reference Trajectory:
-driver_reference = reference_trajectory.FigureEight()
-reference = builder.AddSystem(driver_reference)
+reference = builder.AddSystem(reference_trajectory.FigureEight())
 
 # Trajectory Parser:
-driver_parser = trajectory_parser.TrajectoryParser()
-parser = builder.AddSystem(driver_parser)
+parser = builder.AddSystem(trajectory_parser.TrajectoryParser())
 
 # Motion Planner:
 driver_planner = motion_planner.QuadraticProgram()
@@ -43,11 +41,11 @@ builder.Connect(planner.get_output_port(0), parser.get_input_port(0))
 builder.Connect(parser.get_output_port(0), system.get_input_port(0))
 
 # Connect Drone Output to Motion Planner:
-# dummy = builder.AddSystem(ConstantVectorSource(np.zeros((9,), dtype=float)))
+dummy = builder.AddSystem(ConstantVectorSource(np.zeros((9,), dtype=float)))
 builder.Connect(system.get_output_port(0), planner.get_input_port(driver_planner.initial_condition_input))
 
 # Logger:
-logger = LogVectorOutput(parser.get_output_port(0), builder)
+logger = LogVectorOutput(system.get_output_port(0), builder)
 diagram = builder.Build()
 
 # Set the initial conditions, x(0).
@@ -65,14 +63,9 @@ next_time_step = dt
 
 _start = time.perf_counter()
 while next_time_step <= FINAL_TIME:
-    try:
-        print(f"Drake Real Time Rate: {simulator.get_actual_realtime_rate()}") 
-        simulator.AdvanceTo(next_time_step)
-        next_time_step += dt
-    except:
-        driver_system.execute_landing_sequence()
-
-driver_system.execute_landing_sequence()
+    print(f"Drake Real Time Rate: {simulator.get_actual_realtime_rate()}") 
+    simulator.AdvanceTo(next_time_step)
+    next_time_step += dt
 
 _end = time.perf_counter() - _start
 print(f"Time: {_end}")

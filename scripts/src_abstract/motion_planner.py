@@ -14,7 +14,7 @@ class QuadraticProgram(LeafSystem):
         # Class Parameters:
         self._UPDATE_RATE = 1.0 / 5.0
 
-        # Initialize Output Values:
+        # Initialize Value: (NEEDS THIS HERE?)
         self.trajectory = np.zeros((63,), dtype=float)
 
         # Declare Input:
@@ -31,7 +31,7 @@ class QuadraticProgram(LeafSystem):
         
         # Declare Initialization Event:
         def on_initialize(context, event):
-            self.solve_qp(context, event)
+            self.trajectory = np.zeros((63,), dtype=float)
 
         self.DeclareInitializationEvent(
             event=PublishEvent(
