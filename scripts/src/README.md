@@ -1,7 +1,7 @@
 # Code Explanation:
 
 ### Intended Block Diagram of System:
-![Naming Reference](/imgs/block_diagram.png)
+![Naming Reference](/imgs/block_diagram_.png)
 
 ### High-level Code Overview:
 ``crazyswarm_class`` is a implementor of ``CrazySwarm`` API calls. 
