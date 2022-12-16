@@ -95,7 +95,7 @@ class CrazyswarmSystem(LeafSystem):
             # Get Current VICON Positions:
             self.position = self.cf.position()
             # Combine with Estimated States:
-            self.full_state = np.concatenate([self.position, self.estimated_states], axis=0, dtype=float)
+            self.full_state = np.concatenate([self.position, self.estimated_states], axis=0)
 
         self.DeclarePeriodicEvent(period_sec=self._CONTROL_RATE,
                     offset_sec=0.0,

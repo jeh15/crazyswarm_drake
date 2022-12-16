@@ -15,7 +15,7 @@ class QuadraticProgram(LeafSystem):
         self._UPDATE_RATE = 1.0 / 5.0
 
         # Initialize Value: (NEEDS THIS HERE?)
-        # self.trajectory = np.zeros((63,), dtype=float)
+        self.trajectory = np.zeros((63,), dtype=float)
 
         # Declare Input:
         self.initial_condition_input = self.DeclareVectorInputPort("initial_condition", 9).get_index()

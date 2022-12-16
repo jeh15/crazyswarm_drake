@@ -41,7 +41,8 @@ builder.Connect(planner.get_output_port(0), parser.get_input_port(0))
 builder.Connect(parser.get_output_port(0), system.get_input_port(0))
 
 # Connect Drone Output to Motion Planner:
-builder.Connect(system.get_output_port(0), planner.get_input_port(driver_planner.initial_condition_input))
+dummy = builder.AddSystem(ConstantVectorSource(np.zeros((9,), dtype=float)))
+builder.Connect(dummy.get_output_port(0), planner.get_input_port(driver_planner.initial_condition_input))
 
 # Logger:
 logger = LogVectorOutput(system.get_output_port(0), builder)
