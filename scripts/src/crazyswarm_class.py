@@ -12,19 +12,19 @@ class CrazyswarmSystem(LeafSystem):
     def __init__(self):
         LeafSystem.__init__(self)
         # Parameters:
-        self._CONTROL_RATE = 1.0 / 100.0  # MATCH TRAJECTORY PARSER
+        self._CONTROL_RATE = 1.0 / 100.0                # MATCH TRAJECTORY PARSER
         self._RUNTIME_RATE = self._CONTROL_RATE / 2.0
-        self._OUTPUT_UPDATE_RATE = 1.0 / 5.0  # MATCH MOTION PLANNER
+        self._OUTPUT_UPDATE_RATE = 1.0 / 5.0            # MATCH MOTION PLANNER
 
         # Initial Condition for OUTPUT:
         self.full_state = np.zeros((9,), dtype=float)
         self.estimated_states = np.zeros((6,), dtype=float)
 
         # Declare Input: Control Input Package
-        self.DeclareVectorInputPort("reference_trajectory", 3)
+        self.DeclareVectorInputPort("drone_trajectory_input", 3)
 
         # Declare Output: VICON Data Package
-        self.DeclareVectorOutputPort("position", 9, self.output_callback)
+        self.DeclareVectorOutputPort("drone_full_state_output", 9, self.output_callback)
         
         # Declare Initialization Event to Init CrazySwarm:
         def on_initialize(context, event):
@@ -70,8 +70,8 @@ class CrazyswarmSystem(LeafSystem):
                 )
             )
 
-        # Declare Update Event: (Control Crazyflie, Get Crazyflie Position)
-        def periodic_input_event(context, event):
+        # Declare Update Event: Control Crazyflie
+        def periodic_event(context, event):
             _start = time.perf_counter()
             _RUNTIME_FLAG = False
             while not _RUNTIME_FLAG:
@@ -86,7 +86,7 @@ class CrazyswarmSystem(LeafSystem):
                     offset_sec=0.0,
                     event=PublishEvent(
                         trigger_type=TriggerType.kPeriodic,
-                        callback=periodic_input_event,
+                        callback=periodic_event,
                         )
                     )
 
@@ -105,7 +105,6 @@ class CrazyswarmSystem(LeafSystem):
                         )
                     )
 
-        # TO DO: Create Dummy Values for fullstate
         # DO NOT USE DURING SIM:
         # ROS Subscriber Callback: Estimated Velocity and Acceleration
         # def subscriber_callback(data):

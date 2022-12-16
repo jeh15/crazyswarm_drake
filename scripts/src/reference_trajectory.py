@@ -14,10 +14,9 @@ class FigureEight(LeafSystem):
 
         # Declare Output: Trajectory Info
         """Outputs reference trajectory"""
-        self.DeclareVectorOutputPort("trajectory", 
+        self.DeclareVectorOutputPort("reference_trajectory", 
         2, 
-        self.output,
-        {self.time_ticket()})
+        self.output)
         
         # Declare Initialization Event:
         def on_initialize(context, event):
@@ -44,8 +43,8 @@ class FigureEight(LeafSystem):
                     )
 
     # Output Port Callback:
-    def output(self, context, get_trajectory):
-        get_trajectory.SetFromVector(self.trajectory)
+    def output(self, context, reference_trajectory):
+        reference_trajectory.SetFromVector(self.trajectory)
 
     # Methods:
     def _figure_eight_trajectory(self, context, event):

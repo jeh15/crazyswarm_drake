@@ -40,7 +40,7 @@ builder.Connect(planner.get_output_port(0), parser.get_input_port(0))
 # Connect Trajectory Parser to CrazySwarm:
 builder.Connect(parser.get_output_port(0), system.get_input_port(0))
 
-# Connect CrazySwarm to Motion Planner:
+# Connect Drone Output to Motion Planner:
 builder.Connect(system.get_output_port(0), planner.get_input_port(driver_planner.initial_condition_input))
 
 # Logger:
@@ -69,7 +69,7 @@ while next_time_step <= FINAL_TIME:
 _end = time.perf_counter() - _start
 print(f"Time: {_end}")
 
-# Plot the results.
+# Plot the results:
 log = logger.FindLog(context)
 plt.figure()
 plt.plot(log.sample_times(), log.data().transpose())

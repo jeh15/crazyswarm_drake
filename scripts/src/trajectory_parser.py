@@ -12,7 +12,7 @@ class TrajectoryParser(LeafSystem):
     def __init__(self):
         LeafSystem.__init__(self)
         # Class Parameters:
-        self._INPUT_UPDATE_RATE = 1.0 / 5.0    # MATCH MOTION PLANNER
+        self._INPUT_UPDATE_RATE = 1.0 / 5.0     # MATCH MOTION PLANNER
         self._OUTPUT_UPDATE_RATE = 1.0 / 100.0  # MATCH CRAZYSWARM
 
         # **THESE VALUES CHANGE RELATIVE TO THE MOTION PLANNER**
@@ -24,16 +24,14 @@ class TrajectoryParser(LeafSystem):
 
         # Declare Input:
         """Input Motion Planner trajectory"""
-        self.DeclareVectorInputPort("trajectory", 63)
+        self.DeclareVectorInputPort("parser_input", 63)
 
         # Declare Output: Trajectory Info
         """Outputs reference trajectory"""
         self.DeclareVectorOutputPort(
-            "trajectory", 
+            "parser_output", 
             3, 
-            self.output_callback,
-            {self.all_input_ports_ticket(),
-            self.time_ticket()})
+            self.output_callback)
         
         # Declare Initialization Event: Default Values
         def on_initialize(context, event):

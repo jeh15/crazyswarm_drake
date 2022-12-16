@@ -3,7 +3,7 @@ import time
 import copy
 
 from pydrake.all import MathematicalProgram, Solve
-from pydrake.systems.framework import LeafSystem, PublishEvent, TriggerType
+from pydrake.systems.framework import LeafSystem, PublishEvent, TriggerType, InputPortIndex
 
 import pdb
 
@@ -15,7 +15,7 @@ class QuadraticProgram(LeafSystem):
         self._UPDATE_RATE = 1.0 / 5.0
 
         # Initialize Value: (NEEDS THIS HERE?)
-        self.trajectory = np.zeros((63,), dtype=float)
+        # self.trajectory = np.zeros((63,), dtype=float)
 
         # Declare Input:
         self.initial_condition_input = self.DeclareVectorInputPort("initial_condition", 9).get_index()
@@ -24,10 +24,9 @@ class QuadraticProgram(LeafSystem):
         # Declare Output: Trajectory Info
         """Outputs reference trajectory"""
         self.DeclareVectorOutputPort(
-            "trajectory", 
+            "motion_plan_output", 
             63, 
-            self.output,
-            {self.all_input_ports_ticket()})
+            self.output)
         
         # Declare Initialization Event:
         def on_initialize(context, event):
