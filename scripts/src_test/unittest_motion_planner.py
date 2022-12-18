@@ -46,7 +46,7 @@ simulator.set_target_realtime_rate(1.0)
 simulator.Initialize()
 
 # Simulate System:
-FINAL_TIME = 10.0
+FINAL_TIME = 5.0
 dt = 1.0 / 100.0
 next_time_step = dt
 

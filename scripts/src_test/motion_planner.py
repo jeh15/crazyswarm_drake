@@ -144,11 +144,16 @@ class QuadraticProgram(LeafSystem):
             ub=bounds
             )
 
-        # Objective Function:
+        # Objective Function Formulation:
         target_positions = self.get_input_port(self.target_input).Eval(context)
         target_positions = np.reshape(target_positions, (2, 1))
         _error = target_positions - _s[:2, :]
-        self.prog.AddQuadraticCost(np.sum(_error ** 2))
+        _weight_distance, _weight_effort = 0.1, 0.001
+        _minimize_distance = _weight_distance * np.sum(_error ** 2)
+        _minimize_effort = _weight_effort * np.sum(ux ** 2 + uy ** 2)
+        self.prog.AddQuadraticCost(
+            np.sum(_minimize_distance + _minimize_effort)
+            )
 
         # Solve the program.
         self.solution = Solve(self.prog)
