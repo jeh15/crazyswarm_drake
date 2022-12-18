@@ -1,9 +1,8 @@
 import matplotlib.pyplot as plt
-import numpy as np
 
 from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import DiagramBuilder
-from pydrake.systems.primitives import LogVectorOutput, ConstantVectorSource
+from pydrake.systems.primitives import LogVectorOutput
 
 # DEBUG:
 import pdb
@@ -30,23 +29,21 @@ simulator = Simulator(diagram, context)
 simulator.set_target_realtime_rate(1.0)
 simulator.Initialize()
 
-pdb.set_trace()
-
 # Simulate System:
 FINAL_TIME = 3.0
 dt = 1.0 / 100.0
 next_time_step = dt
 
 while next_time_step <= FINAL_TIME:
-    print(f"Drake Real Time Rate: {simulator.get_actual_realtime_rate()}") 
+    print(f"Drake Real Time Rate: {simulator.get_actual_realtime_rate()}")
     simulator.AdvanceTo(next_time_step)
     next_time_step += dt
 
 # Plot the results:
 log = logger.FindLog(context)
 plt.figure()
-plt.plot(log.sample_times(), log.data().transpose())
+plt.plot(log.data()[0, :], log.data()[1, :])
+plt.xlabel('x(t)')
+plt.ylabel('y(t)')
 pdb.set_trace()
-plt.xlabel('t')
-plt.ylabel('x(t)')
 plt.show()

@@ -1,34 +1,25 @@
 import numpy as np
 
-import pdb
-
 from pydrake.common.value import Value
 from pydrake.systems.framework import (
-    LeafSystem, 
-    PublishEvent, 
-    TriggerType, 
+    LeafSystem,
+    PublishEvent,
+    TriggerType,
     BasicVector_,
 )
+
 
 class FigureEight(LeafSystem):
     def __init__(self):
         LeafSystem.__init__(self)
-        
+
         # Class Parameters:
-        self._UPDATE_RATE = 1.0 / 5.0 # MATCH MOTION PLANNER INPUT
+        self._UPDATE_RATE = 1.0 / 5.0
 
         # Initialize Abstract States:
         state_size = np.zeros((2,))
         state_init = Value[BasicVector_[float]](state_size)
         self.state_index = self.DeclareAbstractState(state_init)
-
-        # Declare Output: Abstract
-        # self.DeclareAbstractOutputPort(
-        #     "target_position",
-        #     alloc=state_init,
-        #     calc=self.output_callback,
-        #     prerequisites_of_calc={self.all_sources_ticket()},
-        # )
 
         # Declare Output: Vector
         self.DeclareVectorOutputPort(
@@ -36,7 +27,7 @@ class FigureEight(LeafSystem):
             np.size(state_size),
             self.output_callback,
         )
-        
+
         # Declare Initialization Event:
         def on_initialize(context, event):
             _x, _y = self._figure_eight_trajectory(context)
@@ -67,11 +58,12 @@ class FigureEight(LeafSystem):
 
     # Output Port Callback:
     def output_callback(self, context, output_target_position):
+        # How can I clean this up?
         a_state = context.get_mutable_abstract_state(self.state_index)
         a_value = a_state.get_mutable_value()
-        output_target_position.SetFromVector(a_value)
+        output_target_position.SetFromVector(a_value.get_mutable_value())
 
-    # Methods:
+    # Class Methods:
     def _figure_eight_trajectory(self, context):
         _r = 1.0
         _time = context.get_time()
