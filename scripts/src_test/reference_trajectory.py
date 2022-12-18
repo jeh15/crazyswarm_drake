@@ -32,8 +32,8 @@ class FigureEight(LeafSystem):
 
         # Declare Output: Vector
         self.DeclareVectorOutputPort(
-            "target_position", 
-            np.size(state_size), 
+            "target_position",
+            np.size(state_size),
             self.output_callback,
         )
         
@@ -56,13 +56,14 @@ class FigureEight(LeafSystem):
             a_state = context.get_mutable_abstract_state(self.state_index)
             a_state.set_value(np.array([_x, _y], dtype=float))
 
-        self.DeclarePeriodicEvent(period_sec=self._UPDATE_RATE,
-                    offset_sec=0.0,
-                    event=PublishEvent(
-                        trigger_type=TriggerType.kPeriodic,
-                        callback=on_periodic,
-                        )
-                    )
+        self.DeclarePeriodicEvent(
+            period_sec=self._UPDATE_RATE,
+            offset_sec=0.0,
+            event=PublishEvent(
+                trigger_type=TriggerType.kPeriodic,
+                callback=on_periodic,
+                )
+            )
 
     # Output Port Callback:
     def output_callback(self, context, output_target_position):

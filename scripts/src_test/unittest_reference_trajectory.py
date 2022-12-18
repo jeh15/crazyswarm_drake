@@ -19,13 +19,13 @@ driver_reference = reference_trajectory.FigureEight()
 reference = builder.AddSystem(driver_reference)
 
 # Logger: (Causing Output Erro)
-# logger = LogVectorOutput(reference.get_output_port(0), builder)
+logger = LogVectorOutput(reference.get_output_port(0), builder)
 diagram = builder.Build()
 
 # Set the initial conditions, x(0).
 context = diagram.CreateDefaultContext()
 
-# Create the simulator, and simulate for 1 seconds.
+# Create the simulator:
 simulator = Simulator(diagram, context)
 simulator.set_target_realtime_rate(1.0)
 simulator.Initialize()
