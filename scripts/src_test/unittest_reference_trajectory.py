@@ -4,9 +4,6 @@ from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import DiagramBuilder
 from pydrake.systems.primitives import LogVectorOutput
 
-# DEBUG:
-import pdb
-
 # Custom LeafSystems:
 import reference_trajectory
 
@@ -17,11 +14,11 @@ builder = DiagramBuilder()
 driver_reference = reference_trajectory.FigureEight()
 reference = builder.AddSystem(driver_reference)
 
-# Logger: (Causing Output Erro)
+# Logger:
 logger = LogVectorOutput(reference.get_output_port(0), builder)
 diagram = builder.Build()
 
-# Set the initial conditions, x(0).
+# Set the initial context
 context = diagram.CreateDefaultContext()
 
 # Create the simulator:
@@ -30,7 +27,7 @@ simulator.set_target_realtime_rate(1.0)
 simulator.Initialize()
 
 # Simulate System:
-FINAL_TIME = 3.0
+FINAL_TIME = 10.0
 dt = 1.0 / 100.0
 next_time_step = dt
 
@@ -46,4 +43,3 @@ plt.plot(log.data()[0, :], log.data()[1, :])
 plt.xlabel('x(t)')
 plt.ylabel('y(t)')
 plt.show()
-plt.savefig('foo.png')
