@@ -1,4 +1,6 @@
 import matplotlib.pyplot as plt
+from matplotlib.animation import FFMpegWriter
+from matplotlib.patches import Circle
 import numpy as np
 
 from pydrake.systems.analysis import Simulator
@@ -56,20 +58,47 @@ while next_time_step <= FINAL_TIME:
     # Get Subsystem Context for ConstantSourceVector:
     subsystem_context = driver_ic.GetMyContextFromRoot(context)
     src_value = driver_ic.get_mutable_source_value(subsystem_context)
-    # Get end states to set as next IC:
+    # Get next IC: (Pretend it controls only first 3 Nodes)
     new_ic = np.reshape(
         driver_planner._full_state_trajectory,
         (-1, driver_planner._num_nodes)
-        )[:, -1]
+        )[:, 2]
     src_value.set_value(new_ic)
     # Increment time step:
     next_time_step += dt
 
 # Plot the results:
 log = logger.FindLog(context)
-plt.figure()
-plt.plot(log.data()[0, :], log.data()[1, :])
-plt.xlabel('x(t)')
-plt.ylabel('y(t)')
-plt.show()
-plt.savefig('foo.png')
+
+# Setup Figure: Initialize Figure / Axe Handles
+fig, ax = plt.subplots()
+p, = ax.plot([], [], color='cornflowerblue')
+ax.axis('equal')
+ax.set_xlim([-3, 3])  # X Lim
+ax.set_ylim([-3, 3])  # Y Lim
+ax.set_xlabel('X')  # X Label
+ax.set_ylabel('Y')  # Y Label
+ax.set_title('Motion Planner Animation:')
+video_title = "simulation"
+
+# Initialize Patch:
+c = Circle((0, 0), radius=0.1, color='cornflowerblue')
+ax.add_patch(c)
+
+# Setup Animation Writer:
+dpi = 300
+FPS = 20
+sample_rate = int(1 / (dt * FPS))
+writerObj = FFMpegWriter(fps=FPS)
+simulation_size = len(log.sample_times())
+
+# Plot and Create Animation:
+with writerObj.saving(fig, video_title+".mp4", dpi):
+    for i in range(0, simulation_size, sample_rate):
+        # Update Patch:
+        patch_center = log.data()[0, i], log.data()[1, i]
+        c.center = patch_center
+        # Update Drawing:
+        fig.canvas.draw()  # Update the figure with the new changes
+        # Grab and Save Frame:
+        writerObj.grab_frame()

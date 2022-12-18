@@ -16,7 +16,7 @@ class QuadraticProgram(LeafSystem):
     def __init__(self):
         LeafSystem.__init__(self)
         # Class Parameters:
-        self._UPDATE_RATE = 1.0 / 5.0
+        self._UPDATE_RATE = 1.0 / 10.0
 
         # Mathematical Program Parameters:
         self._dim_size = 2
