@@ -14,7 +14,7 @@ class FigureEight(LeafSystem):
         LeafSystem.__init__(self)
 
         # Class Parameters:
-        self._UPDATE_RATE = 1.0 / 5.0
+        self._UPDATE_RATE = 1.0 / 1.0
 
         # Initialize Abstract States:
         state_size = np.zeros((2,))

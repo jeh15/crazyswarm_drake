@@ -1,6 +1,6 @@
 import numpy as np
 
-from pydrake.all import MathematicalProgram, Solve
+from pydrake.all import MathematicalProgram, IpoptSolver
 from pydrake.common.value import Value
 from pydrake.systems.framework import (
     LeafSystem,
@@ -26,6 +26,12 @@ class QuadraticProgram(LeafSystem):
         self._time_horizon = 1.0
         self._dt = self._time_horizon / (self._num_nodes - 1)
 
+        # Initialize for T = 0:
+        self._full_state_trajectory = np.zeros(
+            (self._full_size * self._num_nodes,),
+            dtype=float,
+            )
+
         # Initialize Abstract States:
         output_position = 3  # Only outputing the position trajectory (x, y, z)
         output_size = np.zeros((output_position * self._num_nodes,))
@@ -36,8 +42,14 @@ class QuadraticProgram(LeafSystem):
         # Full State From CrazySwarm:
         # self.initial_condition_input = self.DeclareVectorInputPort("initial_condition", 9).get_index()
         # Test Input:
-        self.initial_condition_input = self.DeclareVectorInputPort("initial_condition", 6).get_index()
-        self.target_input = self.DeclareVectorInputPort("target_position", 2).get_index()
+        self.initial_condition_input = self.DeclareVectorInputPort(
+            "initial_condition",
+            6,
+            ).get_index()
+        self.target_input = self.DeclareVectorInputPort(
+            "target_position",
+            2,
+            ).get_index()
 
         # Declare Output: Trajectory Info
         self.DeclareVectorOutputPort(
@@ -148,15 +160,20 @@ class QuadraticProgram(LeafSystem):
         target_positions = self.get_input_port(self.target_input).Eval(context)
         target_positions = np.reshape(target_positions, (2, 1))
         _error = target_positions - _s[:2, :]
-        _weight_distance, _weight_effort = 0.1, 0.001
+        _weight_distance, _weight_effort = 1.0, 0.01
         _minimize_distance = _weight_distance * np.sum(_error ** 2)
         _minimize_effort = _weight_effort * np.sum(ux ** 2 + uy ** 2)
         self.prog.AddQuadraticCost(
             np.sum(_minimize_distance + _minimize_effort)
             )
 
-        # Solve the program.
-        self.solution = Solve(self.prog)
+        # Set Initial Guess:
+        self.prog.SetInitialGuess(_s.flatten(), self._full_state_trajectory)
+
+        # Solve the program:
+        ipopt = IpoptSolver()
+        self.solution = ipopt.Solve(self.prog)
+        assert self.solution.is_success()
 
         # Store Solution for Output:
         self._full_state_trajectory = np.vstack([

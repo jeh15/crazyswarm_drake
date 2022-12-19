@@ -7,24 +7,30 @@ from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import DiagramBuilder
 from pydrake.systems.primitives import LogVectorOutput, ConstantVectorSource
 
+import pdb
+
 # Custom LeafSystems:
 import motion_planner
+import reference_trajectory
 
 # Create a block diagram containing our system.
 builder = DiagramBuilder()
+
+# Reference Motion:
+driver_reference = reference_trajectory.FigureEight()
+reference = builder.AddSystem(driver_reference)
 
 # Motion Planner:
 driver_planner = motion_planner.QuadraticProgram()
 planner = builder.AddSystem(driver_planner)
 
 # Create Dummy Inputs:
-dummy_target_position = builder.AddSystem(ConstantVectorSource(np.ones((2,), dtype=float)))
 driver_ic = ConstantVectorSource(np.zeros((6,), dtype=float))
 dummy_initial_condition = builder.AddSystem(driver_ic)
 
 # Connect Systems:
 builder.Connect(
-    dummy_target_position.get_output_port(0),
+    reference.get_output_port(0),
     planner.get_input_port(driver_planner.target_input)
     )
 
@@ -34,7 +40,8 @@ builder.Connect(
     )
 
 # Logger:
-logger = LogVectorOutput(planner.get_output_port(0), builder)
+logger_reference = LogVectorOutput(reference.get_output_port(0), builder)
+logger_planner = LogVectorOutput(planner.get_output_port(0), builder)
 diagram = builder.Build()
 
 # Set the initial conditions, x(0).
@@ -46,7 +53,7 @@ simulator.set_target_realtime_rate(1.0)
 simulator.Initialize()
 
 # Simulate System:
-FINAL_TIME = 5.0
+FINAL_TIME = 10.0
 dt = 1.0 / 100.0
 next_time_step = dt
 
@@ -66,17 +73,18 @@ while next_time_step <= FINAL_TIME:
     next_time_step += dt
 
 # Plot the results:
-log = logger.FindLog(context)
+log_planner = logger_planner.FindLog(context)
+log_reference = logger_reference.FindLog(context)
 
 # Setup Figure: Initialize Figure / Axe Handles
 fig, ax = plt.subplots()
-p, = ax.plot([], [], color='cornflowerblue')
+p, = ax.plot([], [], color='red')
 ax.axis('equal')
 ax.set_xlim([-3, 3])  # X Lim
 ax.set_ylim([-3, 3])  # Y Lim
 ax.set_xlabel('X')  # X Label
 ax.set_ylabel('Y')  # Y Label
-ax.set_title('Motion Planner Animation:')
+ax.set_title('Reference + Planner Animation:')
 video_title = "simulation"
 
 # Initialize Patch:
@@ -86,15 +94,28 @@ ax.add_patch(c)
 # Setup Animation Writer:
 dpi = 300
 FPS = 20
+simulation_size = len(log_planner.sample_times())
+dt = FINAL_TIME / simulation_size
 sample_rate = int(1 / (dt * FPS))
 writerObj = FFMpegWriter(fps=FPS)
-simulation_size = len(log.sample_times())
+
 
 # Plot and Create Animation:
 with writerObj.saving(fig, video_title+".mp4", dpi):
     for i in range(0, simulation_size, sample_rate):
+        # Plot Reference Trajectory:
+        if i == 0:
+            x = [log_reference.data()[0, i], log_reference.data()[0, i + 1]]
+            y = [log_reference.data()[1, i], log_reference.data()[1, i + 1]]
+        elif i == simulation_size:
+            x = [log_reference.data()[0, i - 1], log_reference.data()[0, i]]
+            y = [log_reference.data()[1, i - 1], log_reference.data()[1, i]]
+        else:
+            x = [log_reference.data()[0, i - 1], log_reference.data()[0, i], log_reference.data()[0, i + 1]]
+            y = [log_reference.data()[1, i - 1], log_reference.data()[1, i], log_reference.data()[1, i + 1]]  
+        p.set_data(x, y)
         # Update Patch:
-        patch_center = log.data()[0, i], log.data()[1, i]
+        patch_center = log_planner.data()[0, i], log_planner.data()[1, i]
         c.center = patch_center
         # Update Drawing:
         fig.canvas.draw()  # Update the figure with the new changes
