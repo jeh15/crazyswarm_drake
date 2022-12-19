@@ -53,9 +53,11 @@ simulator.set_target_realtime_rate(1.0)
 simulator.Initialize()
 
 # Simulate System:
-FINAL_TIME = 10.0
+FINAL_TIME = 5.0
 dt = 1.0 / 100.0
 next_time_step = dt
+
+trajectory_history = []
 
 while next_time_step <= FINAL_TIME:
     print(f"Drake Real Time Rate: {simulator.get_actual_realtime_rate()}")
@@ -63,11 +65,13 @@ while next_time_step <= FINAL_TIME:
     # Get Subsystem Context for ConstantSourceVector:
     subsystem_context = driver_ic.GetMyContextFromRoot(context)
     src_value = driver_ic.get_mutable_source_value(subsystem_context)
-    # Get next IC: (Pretend it controls only first 3 Nodes)
-    new_ic = np.reshape(
+    # Get next IC: (Pretend it controls only first 10 Nodes)
+    trajectory = np.reshape(
         driver_planner._full_state_trajectory,
         (-1, driver_planner._num_nodes)
-        )[:, 2]
+        )
+    trajectory_history.append(trajectory[:, :3])
+    new_ic = trajectory[:, 2]
     src_value.set_value(new_ic)
     # Increment time step:
     next_time_step += dt
@@ -89,7 +93,9 @@ video_title = "simulation"
 
 # Initialize Patch:
 c = Circle((0, 0), radius=0.1, color='cornflowerblue')
+r = Circle((0, 0), radius=0.1, color='red')
 ax.add_patch(c)
+ax.add_patch(r)
 
 # Setup Animation Writer:
 dpi = 300
@@ -104,16 +110,7 @@ writerObj = FFMpegWriter(fps=FPS)
 with writerObj.saving(fig, video_title+".mp4", dpi):
     for i in range(0, simulation_size, sample_rate):
         # Plot Reference Trajectory:
-        if i == 0:
-            x = [log_reference.data()[0, i], log_reference.data()[0, i + 1]]
-            y = [log_reference.data()[1, i], log_reference.data()[1, i + 1]]
-        elif i == simulation_size:
-            x = [log_reference.data()[0, i - 1], log_reference.data()[0, i]]
-            y = [log_reference.data()[1, i - 1], log_reference.data()[1, i]]
-        else:
-            x = [log_reference.data()[0, i - 1], log_reference.data()[0, i], log_reference.data()[0, i + 1]]
-            y = [log_reference.data()[1, i - 1], log_reference.data()[1, i], log_reference.data()[1, i + 1]]  
-        p.set_data(x, y)
+        r.center = log_reference.data()[0, i], log_reference.data()[1, i]
         # Update Patch:
         patch_center = log_planner.data()[0, i], log_planner.data()[1, i]
         c.center = patch_center

@@ -1,6 +1,6 @@
 import numpy as np
 
-from pydrake.all import MathematicalProgram, IpoptSolver
+from pydrake.all import MathematicalProgram, IpoptSolver, SolverOptions
 from pydrake.common.value import Value
 from pydrake.systems.framework import (
     LeafSystem,
@@ -132,8 +132,8 @@ class QuadraticProgram(LeafSystem):
         # Add Lower and Upper Bounds: (Fastest)
         self.prog.AddBoundingBoxConstraint(-5, 5, x)
         self.prog.AddBoundingBoxConstraint(-5, 5, y)
-        self.prog.AddBoundingBoxConstraint(-5, 5, dx)
-        self.prog.AddBoundingBoxConstraint(-5, 5, dy)
+        self.prog.AddBoundingBoxConstraint(-100, 100, dx)
+        self.prog.AddBoundingBoxConstraint(-100, 100, dy)
         self.prog.AddBoundingBoxConstraint(-1, 1, ux)
         self.prog.AddBoundingBoxConstraint(-1, 1, uy)
 
@@ -159,21 +159,32 @@ class QuadraticProgram(LeafSystem):
         # Objective Function Formulation:
         target_positions = self.get_input_port(self.target_input).Eval(context)
         target_positions = np.reshape(target_positions, (2, 1))
-        _error = target_positions - _s[:2, :]
-        _weight_distance, _weight_effort = 1.0, 0.01
+        _error = _s[:2, :] - target_positions
+        _weight_distance, _weight_effort = 100.0, 0.01
         _minimize_distance = _weight_distance * np.sum(_error ** 2)
         _minimize_effort = _weight_effort * np.sum(ux ** 2 + uy ** 2)
-        self.prog.AddQuadraticCost(
-            np.sum(_minimize_distance + _minimize_effort)
+        objective_function = self.prog.AddQuadraticCost(
+            _minimize_distance + _minimize_effort,
+            is_convex=True,
             )
+        assert objective_function.evaluator().is_convex()
 
         # Set Initial Guess:
-        self.prog.SetInitialGuess(_s.flatten(), self._full_state_trajectory)
+        # self.prog.SetInitialGuess(_s.flatten(), self._full_state_trajectory)
 
         # Solve the program:
         ipopt = IpoptSolver()
-        self.solution = ipopt.Solve(self.prog)
-        assert self.solution.is_success()
+        solver_options = SolverOptions()
+        solver_options.SetOption(ipopt.solver_id(), "max_iter", 1000)
+        self.solution = ipopt.Solve(
+            self.prog,
+            self._full_state_trajectory,
+            solver_options,
+            )
+
+        if not self.solution.is_success():
+            print(self.solution.get_solver_details().ConvertStatusToString())
+            pdb.set_trace()
 
         # Store Solution for Output:
         self._full_state_trajectory = np.vstack([
