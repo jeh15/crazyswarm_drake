@@ -23,7 +23,7 @@ class QuadraticProgram(LeafSystem):
         self._state_size = self._dim_size * 2
         self._full_size = self._dim_size * 3
         self._num_nodes = 21
-        self._time_horizon = 1.0
+        self._time_horizon = 1.0 / 10.0
         self._dt = self._time_horizon / (self._num_nodes - 1)
 
         # Initialize for T = 0:
@@ -113,6 +113,7 @@ class QuadraticProgram(LeafSystem):
 
         # Initial Condition Constraints:
         initial_conditions = self.get_input_port(self.initial_condition_input).Eval(context)
+        # pdb.set_trace()
         """
         If getting full state output of CrazySwarm
         Throw away z indicies
@@ -134,8 +135,8 @@ class QuadraticProgram(LeafSystem):
         self.prog.AddBoundingBoxConstraint(-5, 5, y)
         self.prog.AddBoundingBoxConstraint(-100, 100, dx)
         self.prog.AddBoundingBoxConstraint(-100, 100, dy)
-        self.prog.AddBoundingBoxConstraint(-1, 1, ux)
-        self.prog.AddBoundingBoxConstraint(-1, 1, uy)
+        self.prog.AddBoundingBoxConstraint(-100, 100, ux)
+        self.prog.AddBoundingBoxConstraint(-100, 100, uy)
 
         # Collocation Constraints: Python Function
         def collocation_func(z):
@@ -159,12 +160,14 @@ class QuadraticProgram(LeafSystem):
         # Objective Function Formulation:
         target_positions = self.get_input_port(self.target_input).Eval(context)
         target_positions = np.reshape(target_positions, (2, 1))
+        pdb.set_trace()
         _error = _s[:2, :] - target_positions
-        _weight_distance, _weight_effort = 100.0, 0.01
-        _minimize_distance = _weight_distance * np.sum(_error ** 2)
-        _minimize_effort = _weight_effort * np.sum(ux ** 2 + uy ** 2)
+        _weight_distance, _weight_effort = 100.0, 0.0001
+        _minimize_distance = _weight_distance * np.sum(_error ** 2, axis=0)
+        _minimize_effort = _weight_effort * np.sum(ux ** 2 + uy ** 2, axis=0)
+        _cost = np.sum(_minimize_distance + _minimize_effort, axis=0)
         objective_function = self.prog.AddQuadraticCost(
-            _minimize_distance + _minimize_effort,
+            _cost,
             is_convex=True,
             )
         assert objective_function.evaluator().is_convex()

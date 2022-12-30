@@ -73,6 +73,7 @@ while next_time_step <= FINAL_TIME:
     trajectory_history.append(trajectory[:, :3])
     new_ic = trajectory[:, 2]
     src_value.set_value(new_ic)
+
     # Increment time step:
     next_time_step += dt
 
