@@ -66,7 +66,7 @@ while next_time_step <= FINAL_TIME:
     # Get Subsystem Context for ConstantSourceVector:
     subsystem_context = driver_ic.GetMyContextFromRoot(context)
     src_value = driver_ic.get_mutable_source_value(subsystem_context)
-    # Get next IC: (Pretend it controls only first 10 Nodes)
+    # Get next IC: (Pretend it controls only first 3 Nodes)
     trajectory = np.reshape(
         driver_planner._full_state_trajectory,
         (-1, driver_planner._num_nodes)
