@@ -98,7 +98,7 @@ class QuadraticProgram(LeafSystem):
 
         # Model Parameters:
         mass = 0.486
-        friction = 0.1
+        friction = 0.01
 
         # State and Control Input Variables:
         x = self.prog.NewContinuousVariables(self._num_nodes, "x")
@@ -113,7 +113,7 @@ class QuadraticProgram(LeafSystem):
 
         # Initial Condition Constraints:
         initial_conditions = self.get_input_port(self.initial_condition_input).Eval(context)
-        # pdb.set_trace()
+
         """
         If getting full state output of CrazySwarm
         Throw away z indicies
@@ -121,13 +121,14 @@ class QuadraticProgram(LeafSystem):
         """
         # z_index = [2, 5, 8]
         # bounds = np.delete(initial_conditions, z_index)
-        bounds = initial_conditions
-        _A_initial_condition = np.eye(self._full_size, dtype=float)
+        # [:-2] Unconstrained Acceleration
+        bounds = initial_conditions[:-2]
+        _A_initial_condition = np.eye(self._state_size, dtype=float)
         self.prog.AddLinearConstraint(
             A=_A_initial_condition,
             lb=bounds,
             ub=bounds,
-            vars=_s[:, 0]
+            vars=_s[:-2, 0]
         )
 
         # Add Lower and Upper Bounds: (Fastest)

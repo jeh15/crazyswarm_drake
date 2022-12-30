@@ -58,6 +58,7 @@ dt = 1.0 / 100.0
 next_time_step = dt
 
 trajectory_history = []
+ic_history = []
 
 while next_time_step <= FINAL_TIME:
     print(f"Drake Real Time Rate: {simulator.get_actual_realtime_rate()}")
@@ -72,6 +73,7 @@ while next_time_step <= FINAL_TIME:
         )
     trajectory_history.append(trajectory[:, :3])
     new_ic = trajectory[:, 2]
+    ic_history.append(new_ic)
     src_value.set_value(new_ic)
 
     # Increment time step:
@@ -80,6 +82,7 @@ while next_time_step <= FINAL_TIME:
 # Plot the results:
 log_planner = logger_planner.FindLog(context)
 log_reference = logger_reference.FindLog(context)
+
 
 # Setup Figure: Initialize Figure / Axe Handles
 fig, ax = plt.subplots()
@@ -95,26 +98,33 @@ video_title = "simulation"
 # Initialize Patch:
 c = Circle((0, 0), radius=0.1, color='cornflowerblue')
 r = Circle((0, 0), radius=0.1, color='red')
+k = Circle((0, 0), radius=0.1, color='black')
 ax.add_patch(c)
 ax.add_patch(r)
+ax.add_patch(k)
 
 # Setup Animation Writer:
 dpi = 300
 FPS = 20
 simulation_size = len(log_planner.sample_times())
-dt = FINAL_TIME / simulation_size
+dummy_size = len(ic_history[:])
+dt = FINAL_TIME / dummy_size
 sample_rate = int(1 / (dt * FPS))
 writerObj = FFMpegWriter(fps=FPS)
 
+# Resampled based on dummy size:
+idx = np.round(np.linspace(0, simulation_size - 1, dummy_size)).astype(int)
+log_planner_position = log_planner.data()[:, idx]
+log_reference_position = log_reference.data()[:, idx]
 
 # Plot and Create Animation:
 with writerObj.saving(fig, video_title+".mp4", dpi):
-    for i in range(0, simulation_size, sample_rate):
+    for i in range(0, dummy_size, sample_rate):
         # Plot Reference Trajectory:
-        r.center = log_reference.data()[0, i], log_reference.data()[1, i]
+        r.center = log_reference_position[0, i], log_reference_position[1, i]
         # Update Patch:
-        patch_center = log_planner.data()[0, i], log_planner.data()[1, i]
-        c.center = patch_center
+        c.center = log_planner_position[0, i], log_planner_position[1, i]
+        k.center = ic_history[i][0],  ic_history[i][1]
         # Update Drawing:
         fig.canvas.draw()  # Update the figure with the new changes
         # Grab and Save Frame:
