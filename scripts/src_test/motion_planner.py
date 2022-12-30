@@ -160,7 +160,6 @@ class QuadraticProgram(LeafSystem):
         # Objective Function Formulation:
         target_positions = self.get_input_port(self.target_input).Eval(context)
         target_positions = np.reshape(target_positions, (2, 1))
-        pdb.set_trace()
         _error = _s[:2, :] - target_positions
         _weight_distance, _weight_effort = 100.0, 0.0001
         _minimize_distance = _weight_distance * np.sum(_error ** 2, axis=0)
