@@ -6,7 +6,9 @@ from matplotlib.patches import Circle
 
 from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import DiagramBuilder
-from pydrake.systems.primitives import LogVectorOutput, ConstantVectorSource
+from pydrake.systems.primitives import LogVectorOutput
+
+import pdb
 
 # Custom LeafSystems:
 import motion_planner
@@ -42,10 +44,6 @@ planner = builder.AddSystem(driver_planner)
 # Trajectory Parser:
 driver_parser = trajectory_parser.TrajectoryParser(config=params)
 parser = builder.AddSystem(driver_parser)
-
-# Create Dummy Inputs:
-driver_ic = ConstantVectorSource(np.zeros((6,), dtype=float))
-dummy_initial_condition = builder.AddSystem(driver_ic)
 
 # Connect Systems:
 # Reference Out -> Motion Planner In
@@ -87,16 +85,6 @@ next_time_step = dt
 while next_time_step <= FINAL_TIME:
     print(f"Drake Real Time Rate: {simulator.get_actual_realtime_rate()}")
     simulator.AdvanceTo(next_time_step)
-    # Get Subsystem Context for ConstantSourceVector:
-    subsystem_context = driver_ic.GetMyContextFromRoot(context)
-    src_value = driver_ic.get_mutable_source_value(subsystem_context)
-    # Get next IC: (Pretend it controls only first 3 Nodes)
-    trajectory = np.reshape(
-        driver_planner._full_state_trajectory,
-        (-1, driver_planner._nodes),
-    )
-    new_ic = trajectory[:, 2]
-    src_value.set_value(new_ic)
 
     # Increment time step:
     next_time_step += dt
@@ -133,7 +121,7 @@ sample_rate = int(1 / (dt * FPS))
 writerObj = FFMpegWriter(fps=FPS)
 
 # Resampled based on dummy size:
-log_planner_position = np.reshape(log_planner.data(), (3, params.nodes, -1))
+log_planner_position = log_planner.data()
 log_reference_position = log_reference.data()
 
 # Plot and Create Animation:
@@ -142,7 +130,8 @@ with writerObj.saving(fig, video_title+".mp4", dpi):
         # Plot Reference Trajectory:
         r.center = log_reference_position[0, i], log_reference_position[1, i]
         # Update Patch:
-        c.center = log_planner_position[0, 2, i], log_planner_position[1, 2, i]
+        data = np.reshape(log_planner.data()[:, i], (6, -1))
+        c.center = data[0, 0], data[1, 0]
         # Update Drawing:
         fig.canvas.draw()  # Update the figure with the new changes
         # Grab and Save Frame:

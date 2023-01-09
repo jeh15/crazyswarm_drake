@@ -60,6 +60,7 @@ class QuadraticProgram(LeafSystem):
             "motion_plan_output",
             np.size(output_size),
             self.output_callback,
+            {self.abstract_state_ticket(self.state_index)},
         )
 
         # Declare Initialization Event:

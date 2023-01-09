@@ -26,6 +26,7 @@ class FigureEight(LeafSystem):
             "target_position",
             np.size(state_size),
             self.output_callback,
+            {self.abstract_state_ticket(self.state_index)},
         )
 
         # Declare Initialization Event:

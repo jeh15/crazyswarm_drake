@@ -51,6 +51,7 @@ class TrajectoryParser(LeafSystem):
             "parser_output",
             self._full_size,
             self.output_callback,
+            {self.abstract_state_ticket(self.state_index)},
         )
 
         """ Declare Initialization Event: Default Values """
@@ -99,10 +100,10 @@ class TrajectoryParser(LeafSystem):
             # Interpolate from Polynomial:
             current_trajectory = self.trajectory.value(current_time)
 
-            pdb.set_trace()  # Check Shape of Vector
+            # pdb.set_trace()  # Check Shape of Vector
 
-            # Save For Debugging:
-            self.current_trajectory = current_trajectory
+            # # Save For Debugging:
+            # self.current_trajectory = current_trajectory
 
             # Update Abstract State:
             a_state = context.get_mutable_abstract_state(self.state_index)
