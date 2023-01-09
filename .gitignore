@@ -164,3 +164,6 @@ cython_debug/
 
 # Ignore images used for README.md
 imgs/
+
+# Ignore MP4s
+.mp4
