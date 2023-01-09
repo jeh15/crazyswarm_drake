@@ -120,7 +120,6 @@ class QuadraticProgram(LeafSystem):
 
         # Initial Condition Constraints:
         initial_conditions = self.get_input_port(self.initial_condition_input).Eval(context)
-
         """
         If getting full state output of CrazySwarm
         Throw away z indicies
@@ -176,7 +175,7 @@ class QuadraticProgram(LeafSystem):
         objective_function = self.prog.AddQuadraticCost(
             _cost,
             is_convex=True,
-            )
+        )
 
         # Good for debugging:
         # assert objective_function.evaluator().is_convex()
@@ -195,7 +194,7 @@ class QuadraticProgram(LeafSystem):
             self.prog,
             self._full_state_trajectory,
             solver_options,
-            )
+        )
 
         if not self.solution.is_success():
             print(self.solution.get_solver_details().ConvertStatusToString())
@@ -206,12 +205,6 @@ class QuadraticProgram(LeafSystem):
             self.solution.GetSolution(x), self.solution.GetSolution(y),
             self.solution.GetSolution(dx), self.solution.GetSolution(dy),
             self.solution.GetSolution(ux), self.solution.GetSolution(uy)
-            ]).flatten()
-
-        self.trajectory = np.vstack([
-            self.solution.GetSolution(x),
-            self.solution.GetSolution(y),
-            np.zeros((self._nodes,), dtype=float)
             ]).flatten()
 
         # How can I clean this up?

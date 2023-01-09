@@ -11,8 +11,10 @@ from pydrake.systems.framework import (
 )
 from pycrazyswarm import *
 
-import rospy
-from crazyswarm.msg import GenericLogData
+SIMULATION_FLAG = True
+if not SIMULATION_FLAG:
+    from crazyswarm.msg import GenericLogData
+    import rospy
 
 import pdb
 
@@ -70,7 +72,8 @@ class CrazyswarmSystem(LeafSystem):
                 print(f"Time Helper not connected...")
 
             # Define Suscriber Callback for State Estimation:
-            rospy.Subscriber("/cf4/log1", GenericLogData, subscriber_callback)
+            if not SIMULATION_FLAG:
+                rospy.Subscriber("/cf4/log1", GenericLogData, subscriber_callback)
 
             # Save Ground Position:
             self._land_position = self.cf.position()
