@@ -1,8 +1,12 @@
 import numpy as np
 import ml_collections
 
-from pydrake.all import MathematicalProgram, IpoptSolver, SolverOptions, OsqpSolver
 from pydrake.common.value import Value
+from pydrake.all import (
+    MathematicalProgram,
+    SolverOptions,
+    OsqpSolver
+)
 from pydrake.systems.framework import (
     LeafSystem,
     PublishEvent,
@@ -14,10 +18,10 @@ import pdb
 
 
 class QuadraticProgram(LeafSystem):
-    def __init__(self, config: ml_collections.ConfigDict):
+    def __init__(self, config: ml_collections.ConfigDict()):
         LeafSystem.__init__(self)
         # Class Parameters:
-        self._UPDATE_RATE = 1.0 / 10.0
+        self._UPDATE_RATE = config.motion_planner_rate
 
         # Mathematical Program Parameters: Takes from Config
         self._nodes = config.nodes
@@ -42,12 +46,10 @@ class QuadraticProgram(LeafSystem):
         self.state_index = self.DeclareAbstractState(output_state_init)
 
         """ Declare Input: """
-        # Full State From CrazySwarm:
-        # self.initial_condition_input = self.DeclareVectorInputPort("initial_condition", 9).get_index()
-
+        # Full State From CrazySwarm: (x, y, z, dx, dy, dz, ddx, ddy, ddz)
         self.initial_condition_input = self.DeclareVectorInputPort(
             "initial_condition",
-            self._full_size,
+            9,
         ).get_index()
 
         self.target_input = self.DeclareVectorInputPort(
@@ -124,10 +126,10 @@ class QuadraticProgram(LeafSystem):
         Throw away z indicies
         TO DO: Update to 3D model
         """
-        # z_index = [2, 5, 8]
-        # bounds = np.delete(initial_conditions, z_index)
+        z_index = [2, 5, 8]
+        bounds = np.delete(initial_conditions, z_index)
         # [:-2] Unconstrained Acceleration
-        bounds = initial_conditions[:-2]
+        bounds = bounds[:-2]
         _A_initial_condition = np.eye(self._state_size, dtype=float)
         self.prog.AddLinearConstraint(
             A=_A_initial_condition,
