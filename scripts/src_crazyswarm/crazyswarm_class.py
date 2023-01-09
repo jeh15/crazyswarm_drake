@@ -100,15 +100,25 @@ class CrazyswarmSystem(LeafSystem):
         def periodic_event(context, event):
             _start = time.perf_counter()
             _RUNTIME_FLAG = False
+            input_vector = self.get_input_port(0).Eval(context)
+            # Format Input:
+            input_vector = np.array(
+                [input_vector[0], input_vector[1], self.target_height],
+                dtype=float,
+            )
+            self.target_position = input_vector
             while not _RUNTIME_FLAG:
-                input_vector = self.get_input_port(0).Eval(context)
-                # Format Input:
-                input_vector = np.array(
-                    [input_vector[0], input_vector[1], 0.0],
-                    dtype=float,
-                )
-                self.target_position = input_vector + self._initial_position
+                # input_vector = self.get_input_port(0).Eval(context)
+                # # Format Input:
+                # input_vector = np.array(
+                #     [input_vector[0], input_vector[1], 0.0],
+                #     dtype=float,
+                # )
+                # self.target_position = input_vector + self._initial_position
                 self.cf.cmdPosition(self.target_position, yaw=0)
+                # For SIM Only:
+                if SIMULATION_FLAG:
+                    self.timeHelper.sleep(self._RUNTIME_RATE / 10.0)
                 # Check Runtime Allocation:
                 _RUNTIME_FLAG = (time.perf_counter() - _start) > self._RUNTIME_RATE
 
@@ -130,6 +140,10 @@ class CrazyswarmSystem(LeafSystem):
                 [self.position, self.estimated_states],
                 axis=0,
             )
+
+            # For Debugging:
+            self.full_state_output = full_state_output
+
             # Update Abstract State:
             a_state = context.get_mutable_abstract_state(self.state_index)
             a_state.set_value(full_state_output)

@@ -120,6 +120,13 @@ class QuadraticProgram(LeafSystem):
 
         # Initial Condition Constraints:
         initial_conditions = self.get_input_port(self.initial_condition_input).Eval(context)
+
+        # For Debugging:
+        self.initial_conditions = initial_conditions
+        
+        # Convert ddq -> uq
+
+
         """
         If getting full state output of CrazySwarm
         Throw away z indicies
@@ -127,23 +134,23 @@ class QuadraticProgram(LeafSystem):
         """
         z_index = [2, 5, 8]
         bounds = np.delete(initial_conditions, z_index)
-        # [:-2] Unconstrained Acceleration
-        bounds = bounds[:-2]
-        _A_initial_condition = np.eye(self._state_size, dtype=float)
+        # [:-4] Unconstrained Acceleration & Velocity <-- Needed this for simulation
+        bounds = bounds[:-4]
+        _A_initial_condition = np.eye(np.size(bounds), dtype=float)
         self.prog.AddLinearConstraint(
             A=_A_initial_condition,
             lb=bounds,
             ub=bounds,
-            vars=_s[:-2, 0]
+            vars=_s[:-4, 0]
         )
 
         # Add Lower and Upper Bounds: (Fastest)
         self.prog.AddBoundingBoxConstraint(-5, 5, x)
         self.prog.AddBoundingBoxConstraint(-5, 5, y)
-        self.prog.AddBoundingBoxConstraint(-100, 100, dx)
-        self.prog.AddBoundingBoxConstraint(-100, 100, dy)
-        self.prog.AddBoundingBoxConstraint(-100, 100, ux)
-        self.prog.AddBoundingBoxConstraint(-100, 100, uy)
+        self.prog.AddBoundingBoxConstraint(-10, 10, dx)
+        self.prog.AddBoundingBoxConstraint(-10, 10, dy)
+        self.prog.AddBoundingBoxConstraint(-1, 1, ux)
+        self.prog.AddBoundingBoxConstraint(-1, 1, uy)
 
         # Collocation Constraints: Python Function
         def collocation_func(z):
@@ -197,7 +204,6 @@ class QuadraticProgram(LeafSystem):
         )
 
         if not self.solution.is_success():
-            print(self.solution.get_solver_details().ConvertStatusToString())
             pdb.set_trace()
 
         # Store Solution for Output:

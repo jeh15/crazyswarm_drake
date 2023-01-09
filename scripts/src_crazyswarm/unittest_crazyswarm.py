@@ -101,6 +101,7 @@ next_time_step = dt
 while next_time_step <= FINAL_TIME:
     print(f"Drake Real Time Rate: {simulator.get_actual_realtime_rate()}")
     simulator.AdvanceTo(next_time_step)
+    # pdb.set_trace()
     # Increment time step:
     next_time_step += dt
 

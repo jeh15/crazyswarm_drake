@@ -117,6 +117,7 @@ class TrajectoryParser(LeafSystem):
         # output.SetFromVector(self.current_trajectory)
         a_state = context.get_mutable_abstract_state(self.state_index)
         a_value = a_state.get_mutable_value()
+        self._output = a_value
         output.SetFromVector(a_value.get_mutable_value())
 
     """
