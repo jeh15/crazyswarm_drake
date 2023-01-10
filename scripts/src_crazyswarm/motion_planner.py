@@ -124,8 +124,8 @@ class QuadraticProgram(LeafSystem):
         # For Debugging:
         self.initial_conditions = initial_conditions
         
-        # Convert ddq -> uq
-
+        initial_conditions[-3] = (initial_conditions[-3] * mass) + friction * initial_conditions[3]
+        initial_conditions[-2] = (initial_conditions[-2] * mass) + friction * initial_conditions[4]
 
         """
         If getting full state output of CrazySwarm
@@ -134,7 +134,7 @@ class QuadraticProgram(LeafSystem):
         """
         z_index = [2, 5, 8]
         bounds = np.delete(initial_conditions, z_index)
-        # [:-4] Unconstrained Acceleration & Velocity <-- Needed this for simulation
+        # [:-4] Unconstrained Acceleration & Velocity
         bounds = bounds[:-4]
         _A_initial_condition = np.eye(np.size(bounds), dtype=float)
         self.prog.AddLinearConstraint(
@@ -149,8 +149,8 @@ class QuadraticProgram(LeafSystem):
         self.prog.AddBoundingBoxConstraint(-5, 5, y)
         self.prog.AddBoundingBoxConstraint(-10, 10, dx)
         self.prog.AddBoundingBoxConstraint(-10, 10, dy)
-        self.prog.AddBoundingBoxConstraint(-1, 1, ux)
-        self.prog.AddBoundingBoxConstraint(-1, 1, uy)
+        self.prog.AddBoundingBoxConstraint(-5, 5, ux)
+        self.prog.AddBoundingBoxConstraint(-5, 5, uy)
 
         # Collocation Constraints: Python Function
         def collocation_func(z):
@@ -174,6 +174,10 @@ class QuadraticProgram(LeafSystem):
         # Objective Function Formulation:
         target_positions = self.get_input_port(self.target_input).Eval(context)
         target_positions = np.reshape(target_positions, (2, 1))
+
+        # For Debugging:
+        self._target_positions = target_positions
+
         _error = _s[:2, :] - target_positions
         _weight_distance, _weight_effort = 100.0, 0.0001
         _minimize_distance = _weight_distance * np.sum(_error ** 2, axis=0)
@@ -204,6 +208,7 @@ class QuadraticProgram(LeafSystem):
         )
 
         if not self.solution.is_success():
+            print(f"Optimization did not solve!")
             pdb.set_trace()
 
         # Store Solution for Output:

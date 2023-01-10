@@ -99,6 +99,10 @@ class TrajectoryParser(LeafSystem):
             current_time = context.get_time() - self._trajectory_time
             # Interpolate from Polynomial:
             current_trajectory = self.trajectory.value(current_time)
+
+            # For Debugging:
+            self._current_trajectory = current_trajectory
+            
             # Update Abstract State:
             a_state = context.get_mutable_abstract_state(self.state_index)
             a_state.set_value(current_trajectory)
@@ -119,8 +123,3 @@ class TrajectoryParser(LeafSystem):
         a_value = a_state.get_mutable_value()
         self._output = a_value
         output.SetFromVector(a_value.get_mutable_value())
-
-    """
-    Begin testing trajectory parser in the loop.
-    Make sure inputs and outputs make sense.
-    """

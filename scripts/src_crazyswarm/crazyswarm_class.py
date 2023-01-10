@@ -1,6 +1,7 @@
 import numpy as np
 import time
 import ml_collections
+import rospy
 
 from pydrake.common.value import Value
 from pydrake.systems.framework import (
@@ -9,12 +10,9 @@ from pydrake.systems.framework import (
     TriggerType,
     BasicVector_,
 )
-from pycrazyswarm import *
 
-SIMULATION_FLAG = True
-if not SIMULATION_FLAG:
-    from crazyswarm.msg import GenericLogData
-    import rospy
+from pycrazyswarm import *
+from crazyswarm.msg import GenericLogData
 
 import pdb
 
@@ -24,7 +22,7 @@ class CrazyswarmSystem(LeafSystem):
         LeafSystem.__init__(self)
         # Parameters:
         self._CONTROL_RATE = config.crazyswarm_rate             # MATCH TRAJECTORY PARSER
-        self._RUNTIME_RATE = self._CONTROL_RATE * 2.0
+        self._RUNTIME_RATE = self._CONTROL_RATE / 2.0
         self._OUTPUT_UPDATE_RATE = config.motion_planner_rate   # MATCH MOTION PLANNER
 
         # Class Parameters:
@@ -72,8 +70,7 @@ class CrazyswarmSystem(LeafSystem):
                 print(f"Time Helper not connected...")
 
             # Define Suscriber Callback for State Estimation:
-            if not SIMULATION_FLAG:
-                rospy.Subscriber("/cf4/log1", GenericLogData, subscriber_callback)
+            rospy.Subscriber("/cf4/log1", GenericLogData, subscriber_callback)
 
             # Save Ground Position:
             self._land_position = self.cf.position()
@@ -101,25 +98,13 @@ class CrazyswarmSystem(LeafSystem):
             _start = time.perf_counter()
             _RUNTIME_FLAG = False
             input_vector = self.get_input_port(0).Eval(context)
-            # Format Input:
             input_vector = np.array(
                 [input_vector[0], input_vector[1], self.target_height],
                 dtype=float,
             )
             self.target_position = input_vector
             while not _RUNTIME_FLAG:
-                # input_vector = self.get_input_port(0).Eval(context)
-                # # Format Input:
-                # input_vector = np.array(
-                #     [input_vector[0], input_vector[1], 0.0],
-                #     dtype=float,
-                # )
-                # self.target_position = input_vector + self._initial_position
                 self.cf.cmdPosition(self.target_position, yaw=0)
-                # For SIM Only:
-                if SIMULATION_FLAG:
-                    self.timeHelper.sleep(self._RUNTIME_RATE / 10.0)
-                # Check Runtime Allocation:
                 _RUNTIME_FLAG = (time.perf_counter() - _start) > self._RUNTIME_RATE
 
         self.DeclarePeriodicEvent(
@@ -157,14 +142,13 @@ class CrazyswarmSystem(LeafSystem):
                 )
             )
 
-        # DO NOT USE DURING SIM:
         # ROS Subscriber Callback: Estimated Velocity and Acceleration
         def subscriber_callback(data):
             c = 9.80665
-            self.estimated_states = np.array([
-                data.values[0], data.values[1], data.values[2],
-                data.values[3] * c, data.values[4] * c, data.values[5] * c,
-                ], dtype=float,
+            self.estimated_states = np.array(
+                [data.values[0], data.values[1], data.values[2],
+                data.values[3] * c, data.values[4] * c, data.values[5] * c], 
+                dtype=float,
             )
 
     # Output Port Callback:
