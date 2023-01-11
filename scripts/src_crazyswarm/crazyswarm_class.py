@@ -93,19 +93,45 @@ class CrazyswarmSystem(LeafSystem):
                 )
             )
 
+        # Position Control:
+        # # Declare Update Event: Control Crazyflie
+        # def periodic_event(context, event):
+        #     _start = time.perf_counter()
+        #     _RUNTIME_FLAG = False
+        #     input_vector = self.get_input_port(0).Eval(context)
+        #     input_vector = np.array(
+        #         [input_vector[0], input_vector[1], self.target_height],
+        #         dtype=float,
+        #     )
+        #     self.target_position = input_vector
+        #     while not _RUNTIME_FLAG:
+        #         self.cf.cmdPosition(self.target_position, yaw=0)
+        #         _RUNTIME_FLAG = (time.perf_counter() - _start) > self._RUNTIME_RATE
+
+        # Full State Control: Needs a 3 time differentiable polynomial
         # Declare Update Event: Control Crazyflie
         def periodic_event(context, event):
-            _start = time.perf_counter()
-            _RUNTIME_FLAG = False
             input_vector = self.get_input_port(0).Eval(context)
-            input_vector = np.array(
+            position = np.array(
                 [input_vector[0], input_vector[1], self.target_height],
                 dtype=float,
             )
-            self.target_position = input_vector
-            while not _RUNTIME_FLAG:
-                self.cf.cmdPosition(self.target_position, yaw=0)
-                _RUNTIME_FLAG = (time.perf_counter() - _start) > self._RUNTIME_RATE
+            velocity = np.array(
+                [input_vector[2], input_vector[3], 0.0],
+                dtype=float,
+            )
+            acceleration = np.array(
+                [input_vector[4], input_vector[5], 0.0],
+                dtype=float,
+            )
+            self.cf.cmdFullState(
+                pos=position,
+                vel=velocity,
+                acc=acceleration,
+                yaw=0.0,
+                omega=np.zeros((3,), dtype=float),
+            )
+            self.timeHelper.sleep(self._RUNTIME_RATE)
 
         self.DeclarePeriodicEvent(
             period_sec=self._CONTROL_RATE,

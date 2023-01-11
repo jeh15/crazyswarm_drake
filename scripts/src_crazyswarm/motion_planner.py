@@ -135,13 +135,13 @@ class QuadraticProgram(LeafSystem):
         z_index = [2, 5, 8]
         bounds = np.delete(initial_conditions, z_index)
         # [:-4] Unconstrained Acceleration & Velocity
-        bounds = bounds[:-4]
+        bounds = bounds[:]
         _A_initial_condition = np.eye(np.size(bounds), dtype=float)
         self.prog.AddLinearConstraint(
             A=_A_initial_condition,
             lb=bounds,
             ub=bounds,
-            vars=_s[:-4, 0]
+            vars=_s[:, 0]
         )
 
         # Add Lower and Upper Bounds: (Fastest)
