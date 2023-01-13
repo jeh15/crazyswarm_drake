@@ -104,7 +104,8 @@ class QuadraticProgram(LeafSystem):
         self.prog = MathematicalProgram()
 
         # Model Parameters:
-        mass = 0.486
+        # mass = 0.486
+        mass = 0.027 # Actual Crazyflie Mass
         friction = 0.01
 
         # State and Control Input Variables:
@@ -123,12 +124,19 @@ class QuadraticProgram(LeafSystem):
 
         # For Debugging:
         self.initial_conditions = initial_conditions
+
+        # Converts Acceleration to Control and Saturate the Actual Value:
+        def compute_control(ddq: float, dq: float) -> float:
+            return (ddq * mass + friction * dq)
+
+        def limiter(q: float, saturation_limit: float) -> float:
+            if np.abs(q) > saturation_limit:
+                q = np.sign(q) * saturation_limit
+            return q
         
-        def compute_acceleration(u, dx):
-            return ((u[:] * mass) + friction * dx[:])
-        
-        initial_conditions[-3] = compute_acceleration(initial_conditions[-3], initial_conditions[3])
-        initial_conditions[-2] = compute_acceleration(initial_conditions[-2], initial_conditions[4])
+        limit = 0.05
+        initial_conditions[-3] = limiter(compute_control(initial_conditions[-3], initial_conditions[3]), limit)
+        initial_conditions[-2] = limiter(compute_control(initial_conditions[-2], initial_conditions[4]), limit)
 
         """
         If getting full state output of CrazySwarm
@@ -138,7 +146,8 @@ class QuadraticProgram(LeafSystem):
         z_index = [2, 5, 8]
         bounds = np.delete(initial_conditions, z_index)
         # [:-4] Unconstrained Acceleration & Velocity
-        # bounds = bounds[:]
+        # Does it make sense to constrain the control input?
+        # bounds = bounds[:-2]
         _A_initial_condition = np.eye(np.size(bounds), dtype=float)
         self.prog.AddLinearConstraint(
             A=_A_initial_condition,
@@ -152,8 +161,8 @@ class QuadraticProgram(LeafSystem):
         self.prog.AddBoundingBoxConstraint(-5, 5, y)
         self.prog.AddBoundingBoxConstraint(-10, 10, dx)
         self.prog.AddBoundingBoxConstraint(-10, 10, dy)
-        self.prog.AddBoundingBoxConstraint(-5, 5, ux)
-        self.prog.AddBoundingBoxConstraint(-5, 5, uy)
+        self.prog.AddBoundingBoxConstraint(-limit, limit, ux)
+        self.prog.AddBoundingBoxConstraint(-limit, limit, uy)
 
         # Collocation Constraints: Python Function
         def collocation_func(z):
@@ -182,7 +191,7 @@ class QuadraticProgram(LeafSystem):
         self._target_positions = target_positions
 
         _error = _s[:2, :] - target_positions
-        _weight_distance, _weight_effort = 100.0, 0.0001
+        _weight_distance, _weight_effort = 1.0, 0.0
         _minimize_distance = _weight_distance * np.sum(_error ** 2, axis=0)
         _minimize_effort = _weight_effort * np.sum(ux ** 2 + uy ** 2, axis=0)
         _cost = np.sum(_minimize_distance + _minimize_effort, axis=0)
@@ -215,8 +224,12 @@ class QuadraticProgram(LeafSystem):
             pdb.set_trace()
 
         # Store Solution for Output:
+        def compute_acceleration(u: np.ndarray, dx: np.ndarray) -> np.ndarray:
+            return np.asarray([(u[:] - friction * dx[:]) / mass]).flatten()
+
         ddx = compute_acceleration(self.solution.GetSolution(ux), self.solution.GetSolution(dx))
         ddy = compute_acceleration(self.solution.GetSolution(uy), self.solution.GetSolution(dy))
+
         self._full_state_trajectory = np.vstack([
             self.solution.GetSolution(x), self.solution.GetSolution(y),
             self.solution.GetSolution(dx), self.solution.GetSolution(dy),
