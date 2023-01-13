@@ -204,13 +204,13 @@ class QuadraticProgram(LeafSystem):
         # assert objective_function.evaluator().is_convex()
 
         # Set Initial Guess: (Check how to warm start via OSQP)
-        self.prog.SetInitialGuess(_s.flatten(), self._full_state_trajectory)
+        # self.prog.SetInitialGuess(_s.flatten(), self._full_state_trajectory)
 
         # Solve the program:
         """OSQP:"""
         osqp = OsqpSolver()
         solver_options = SolverOptions()
-        solver_options.SetOption(osqp.solver_id(), "max_iter", 5000)
+        solver_options.SetOption(osqp.solver_id(), "max_iter", 1000)
         solver_options.SetOption(osqp.solver_id(), "polish", True)
         solver_options.SetOption(osqp.solver_id(), "verbose", False)
         self.solution = osqp.Solve(

@@ -59,8 +59,8 @@ class TrajectoryParser(LeafSystem):
             self._trajectory_time = 0.0
             # Motion Planner is 2D:
             self.trajectory = PiecewisePolynomial.FirstOrderHold(
-                breaks=self._time_trajectory[1:],
-                samples=np.zeros((self._full_size, self._nodes - 1), dtype=float),
+                breaks=self._time_trajectory,
+                samples=np.zeros((self._full_size, self._nodes), dtype=float),
             )
 
         self.DeclareInitializationEvent(
@@ -71,7 +71,21 @@ class TrajectoryParser(LeafSystem):
             )
 
         """ Declare Update Event: """
-        # (Skip First Node)
+        # # First Order Hold:
+        # def periodic_input_event(context, event):
+        #     # Get Current Time:
+        #     self._trajectory_time = context.get_time()
+        #     # Read Input Trajectory for Storage:
+        #     motion_plan = self.get_input_port(0).Eval(context)
+        #     # Reshape the motion plan for easy manipulation:
+        #     motion_plan = np.reshape(motion_plan, (-1, self._nodes))
+        #     # Construct motion plan into Polynomial for interpolation:
+        #     self.trajectory = PiecewisePolynomial.FirstOrderHold(
+        #         breaks=self._time_trajectory,
+        #         samples=motion_plan,
+        #     )
+
+        # Cubic Hermite:
         def periodic_input_event(context, event):
             # Get Current Time:
             self._trajectory_time = context.get_time()
@@ -85,11 +99,11 @@ class TrajectoryParser(LeafSystem):
             motion_plan_dot = np.concatenate([dq, ddq, dddq], axis=0)
             # Construct motion plan into Polynomial for interpolation:
             self.trajectory = PiecewisePolynomial.CubicHermite(
-                breaks=self._time_trajectory[1:],
-                samples=motion_plan[:, 1:],
-                samples_dot=motion_plan_dot[:, 1:],
+                breaks=self._time_trajectory,
+                samples=motion_plan,
+                samples_dot=motion_plan_dot,
             )
-
+        
         self.DeclarePeriodicEvent(
             period_sec=self._INPUT_UPDATE_RATE,
             offset_sec=0.0,
