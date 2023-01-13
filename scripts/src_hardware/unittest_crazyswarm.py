@@ -18,8 +18,8 @@ import crazyswarm_class
 def get_config() -> ml_collections.ConfigDict():
     config = ml_collections.ConfigDict()
     # Control Rates:
-    config.motion_planner_rate = 1.0 / 10.0
-    config.reference_trajectory_rate = 1.0 / 10.0
+    config.motion_planner_rate = 1.0 / 30.0
+    config.reference_trajectory_rate = 1.0 / 30.0
     config.crazyswarm_rate = 1.0 / 100.0
     # Model Parameters:
     config.nodes = 21                   # (Discretized Points)

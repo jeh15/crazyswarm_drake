@@ -203,15 +203,13 @@ class QuadraticProgram(LeafSystem):
         # Good for debugging:
         # assert objective_function.evaluator().is_convex()
 
-        # Set Initial Guess: (Check how to warm start via OSQP)
-        self.prog.SetInitialGuess(_s.flatten(), self._full_state_trajectory)
-
         # Solve the program:
         """OSQP:"""
         osqp = OsqpSolver()
         solver_options = SolverOptions()
-        solver_options.SetOption(osqp.solver_id(), "max_iter", 5000)
+        solver_options.SetOption(osqp.solver_id(), "max_iter", 10000)
         solver_options.SetOption(osqp.solver_id(), "polish", True)
+        solver_options.SetOption(osqp.solver_id(), "warm_start", True)
         solver_options.SetOption(osqp.solver_id(), "verbose", False)
         self.solution = osqp.Solve(
             self.prog,
@@ -221,7 +219,10 @@ class QuadraticProgram(LeafSystem):
 
         if not self.solution.is_success():
             print(f"Optimization did not solve!")
+            print(f"Solver Status: {self.solution.get_solver_details().status_val}")
+            print(f"Objective Function Convex: {objective_function.evaluator().is_convex()}")
             pdb.set_trace()
+            
 
         # Store Solution for Output:
         def compute_acceleration(u: np.ndarray, dx: np.ndarray) -> np.ndarray:

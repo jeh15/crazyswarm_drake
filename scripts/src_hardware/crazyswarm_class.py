@@ -71,6 +71,8 @@ class CrazyswarmSystem(LeafSystem):
 
             # Define Suscriber Callback for State Estimation:
             rospy.Subscriber("/cf4/log1", GenericLogData, subscriber_callback)
+            # rospy.Subscriber("/cf2/log1", GenericLogData, subscriber_callback)
+
 
             # Save Ground Position:
             self._land_position = self.cf.position()
