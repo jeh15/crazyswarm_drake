@@ -19,14 +19,14 @@ import crazyswarm_class
 def get_config() -> ml_collections.ConfigDict():
     config = ml_collections.ConfigDict()
     # Control Rates:
-    config.motion_planner_rate = 1.0 / 5.0
-    config.reference_trajectory_rate = 1.0 / 5.0
+    config.motion_planner_rate = 1.0 / 10.0
+    config.reference_trajectory_rate = 1.0 / 10.0
     config.crazyswarm_rate = 1.0 / 100.0
     # Model Parameters:
     config.nodes = 21                   # (Discretized Points)
     config.control_horizon = 11         # (Node to control to) Not used
     config.state_dimension = 2          # (x, y)
-    config.time_horizon = 1.0
+    config.time_horizon = config.motion_planner_rate
     config.dt = config.time_horizon / (config.nodes - 1.0)
     return config
 

@@ -50,7 +50,7 @@ class QuadraticProgram(LeafSystem):
             dtype=float,
         )
         self._state_bounds = jnp.asarray(
-            [5, 10, 0.5],
+            [5, 10, 0.05],
             dtype=float,
         )
         self._weights = jnp.asarray(
@@ -130,8 +130,8 @@ class QuadraticProgram(LeafSystem):
     # TODO: JIT Hessian Function
 
     @staticmethod
-    @partial(jit, static_argnames=['mass', 'friction', 'limit', 'dt'])
-    def _equality_constraints(q: jax.Array, initial_conditions: jax.Array, mass: float, friction: float, limit: float, dt: float) -> jnp.ndarray:
+    @partial(jit, static_argnames=['mass', 'friction', 'limit', 'dt', 'num_states', 'num_nodes'])
+    def _equality_constraints(q: jax.Array, initial_conditions: jax.Array, mass: float, friction: float, limit: float, dt: float,  num_states: int, num_nodes: int) -> jnp.ndarray:
         """
         Helper Functions:
             1. Convert Acceleration Data to Control
@@ -161,15 +161,13 @@ class QuadraticProgram(LeafSystem):
             2. Collocation Constraint
         """
         # TODO: Params passed as PyTree
-        _num_states = 6
-        _num_nodes = 21
 
         # Sort State Vector:
-        q_m = q[(_num_states * _num_nodes):]
-        q = q[:(_num_states * _num_nodes)]
+        q_m = q[(num_states * num_nodes):]
+        q = q[:(num_states * num_nodes)]
 
-        q = q.reshape((_num_states, -1))
-        q_m = q_m.reshape((_num_states - 2, -1))
+        q = q.reshape((num_states, -1))
+        q_m = q_m.reshape((num_states - 2, -1))
 
         # State Nodes:
         x = q[0, :]
@@ -233,22 +231,20 @@ class QuadraticProgram(LeafSystem):
         return equality_constraint
 
     @staticmethod
-    @jax.jit
-    def _inequality_constraints(q: jax.Array, state_bounds: jax.Array) -> jnp.ndarray:
+    @partial(jit, static_argnames=['num_states', 'num_nodes'])
+    def _inequality_constraints(q: jax.Array, state_bounds: jax.Array, num_states: int, num_nodes: int) -> jnp.ndarray:
         """
         Inquality Constraints:
             1. State Bounds
         """
         # TODO: Params passed as PyTree
-        _num_states = 6
-        _num_nodes = 21
 
         # Sort State Vector:
-        q_m = q[(_num_states * _num_nodes):]
-        q = q[:(_num_states * _num_nodes)]
+        q_m = q[(num_states * num_nodes):]
+        q = q[:(num_states * num_nodes)]
 
-        q = q.reshape((_num_states, -1))
-        q_m = q_m.reshape((_num_states - 2, -1))
+        q = q.reshape((num_states, -1))
+        q_m = q_m.reshape((num_states - 2, -1))
 
         # State Nodes:
         x = q[0, :]
@@ -277,22 +273,18 @@ class QuadraticProgram(LeafSystem):
 
         return bounds
 
-    # Do my mid points need to be included???
     @staticmethod
-    @jax.jit
-    def _objective_function(q: jax.Array, target_position: jax.Array, w: jax.Array) -> jnp.ndarray:
+    @partial(jit, static_argnames=['num_states', 'num_nodes'])
+    def _objective_function(q: jax.Array, target_position: jax.Array, w: jax.Array, num_states: int, num_nodes: int) -> jnp.ndarray:
         """
         Objective Function:
             1. State Error Objective
             2. Control Effort Objective
         """
-        # TODO: Params passed as PyTree
-        _num_states = 6
-        _num_nodes = 21
 
         # Sort State Vector:
-        q = q[:(_num_states * _num_nodes)]
-        q = q.reshape((_num_states, -1))
+        q = q[:(num_states * num_nodes)]
+        q = q.reshape((num_states, -1))
 
         # State Nodes:
         x = q[0, :]
@@ -326,17 +318,23 @@ class QuadraticProgram(LeafSystem):
             friction=self._friction,
             limit=float(self._state_bounds[2]),
             dt=self._dt,
+            num_states=int(self._full_size),
+            num_nodes=int(self._nodes),
         )
 
         self.inequality_func = lambda x: self._inequality_constraints(
             q=x,
             state_bounds=self._state_bounds,
+            num_states=int(self._full_size),
+            num_nodes=int(self._nodes),
         )
 
         self.objective_func = lambda x, qd: self._objective_function(
             q=x,
             target_position=qd,
             w=self._weights,
+            num_states=int(self._full_size),
+            num_nodes=int(self._nodes),
         )
 
         # Compute A and b matricies for equality constraints:
