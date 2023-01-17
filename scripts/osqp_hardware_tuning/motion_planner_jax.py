@@ -65,7 +65,7 @@ class QuadraticProgram(LeafSystem):
         )
 
         self._warm_start = np.zeros(
-            (self._full_size * self._nodes + 4 * (self._nodes - 1),),
+            (self._full_size * self._nodes + self._state_size * (self._nodes - 1),),
             dtype=float,
         )
 
@@ -98,7 +98,6 @@ class QuadraticProgram(LeafSystem):
         # Declare Initialization Event:
         def on_initialize(context, event):
             self.build_optimization(context, event)
-            pdb.set_trace()
 
         self.DeclareInitializationEvent(
             event=PublishEvent(
@@ -109,7 +108,7 @@ class QuadraticProgram(LeafSystem):
 
         # Declare Update Event: Solve Quadratic Program
         def on_periodic(context, event):
-            self.solve_qp(context, event)
+            self.update_qp(context, event)
 
         self.DeclarePeriodicEvent(
             period_sec=self._UPDATE_RATE,
@@ -127,21 +126,8 @@ class QuadraticProgram(LeafSystem):
         output_motion_plan.SetFromVector(a_value.get_mutable_value())
 
     # Jax Methods:
-    """ Seperate All Jit Functions for now """
     # TODO: Params -> PyTreeNode dataclass
-
-    # Cannot figure this out.
-    # @staticmethod
-    # @jax.jit
-    # def _hessian(f):
-    #     return jacfwd(jacrev(f))
-
-    # @staticmethod
-    # @jax.jit
-    # def _compute_hessian(f: Callable, x: jax.Array, y: jax.Array) -> jnp.ndarray:
-    #     arr = jacfwd(grad(f))(x, y)
-    #     return arr
-
+    # TODO: JIT Hessian Function
 
     @staticmethod
     @partial(jit, static_argnames=['mass', 'friction', 'limit', 'dt'])
@@ -278,7 +264,7 @@ class QuadraticProgram(LeafSystem):
         dx_m = q_m[2, :]
         dy_m = q_m[3, :]
 
-        upper_bounds = jnp.concatenate(
+        bounds = jnp.concatenate(
             [
                 x - state_bounds[0], x_m - state_bounds[0],
                 y - state_bounds[0], y_m - state_bounds[0],
@@ -289,18 +275,7 @@ class QuadraticProgram(LeafSystem):
             axis=0
         )
 
-        lower_bounds = jnp.concatenate(
-            [
-                -x - state_bounds[0], -x_m - state_bounds[0],
-                -y - state_bounds[0], -y_m - state_bounds[0],
-                -dx - state_bounds[1], -dx_m - state_bounds[1],
-                -dy - state_bounds[1], -dy_m - state_bounds[1],
-                -ux - state_bounds[2], -uy - state_bounds[2],
-            ],
-            axis=0
-        )
-
-        return jnp.vstack([lower_bounds, upper_bounds])
+        return bounds
 
     # Do my mid points need to be included???
     @staticmethod
@@ -374,178 +349,144 @@ class QuadraticProgram(LeafSystem):
         
         # Compute H and f matrcies for objective function:
         H = jax.hessian(self.objective_func)(self._setpoint, target_positions)
-        
         f = jacfwd(self.objective_func)(self._setpoint, target_positions)
-        # f = f.reshape(f.shape[0] * f.shape[1], -1)
-        pdb.set_trace()
 
-    # Methods:
-    def solve_qp(self, context, event):
-        """
-        2D Integrator
-        """
-        # Initialize MathematicalProgram:
+        # Construct OSQP Problem:
         self.prog = MathematicalProgram()
 
-        # Model Parameters:
-        # mass = 0.486
-        mass = 0.027 # Actual Crazyflie Mass
-        friction = 0.01
-
         # State and Control Input Variables:
-        x = self.prog.NewContinuousVariables(self._nodes, "x")
-        y = self.prog.NewContinuousVariables(self._nodes, "y")
-        dx = self.prog.NewContinuousVariables(self._nodes, "dx")
-        dy = self.prog.NewContinuousVariables(self._nodes, "dy")
-        ux = self.prog.NewContinuousVariables(self._nodes, "ux")
-        uy = self.prog.NewContinuousVariables(self._nodes, "uy")
+        self._opt_x = self.prog.NewContinuousVariables(self._full_size * self._nodes, "x")
 
         # Mid Point Decision Variables for Hermite-Simpson:
-        x_m = self.prog.NewContinuousVariables(self._nodes - 1, "x_m")
-        y_m = self.prog.NewContinuousVariables(self._nodes - 1, "y_m")
-        dx_m = self.prog.NewContinuousVariables(self._nodes - 1, "dx_m")
-        dy_m = self.prog.NewContinuousVariables(self._nodes - 1, "dy_m")
+        self._opt_x_m = self.prog.NewContinuousVariables(self._state_size * (self._nodes - 1), "x_m")
 
-        # Create Convenient Arrays:
-        _s = np.vstack(np.array([x, y, dx, dy, ux, uy]))
+        # Concatenate Optimaztion Variables:
+        opt_vars = np.concatenate([self._opt_x, self._opt_x_m], axis=0)
 
-        # Initial Condition Constraints:
-        initial_conditions = self.get_input_port(self.initial_condition_input).Eval(context)
-
-        # For Debugging:
-        self.initial_conditions = initial_conditions
-
-        # Converts Acceleration to Control and Saturate the Actual Value:
-        def compute_control(ddq: float, dq: float) -> float:
-            return (ddq * mass + friction * dq)
-
-        def limiter(q: float, saturation_limit: float) -> float:
-            if np.abs(q) > saturation_limit:
-                q = np.sign(q) * saturation_limit
-            return q
-        
-        limit = 0.05
-        initial_conditions[-3] = limiter(compute_control(initial_conditions[-3], initial_conditions[3]), limit)
-        initial_conditions[-2] = limiter(compute_control(initial_conditions[-2], initial_conditions[4]), limit)
-
-        """
-        If getting full state output of CrazySwarm
-        Throw away z indicies
-        TO DO: Update to 3D model
-        """
-        z_index = [2, 5, 8]
-        bounds = np.delete(initial_conditions, z_index)
-        # [:-4] Unconstrained Acceleration & Velocity
-        # Does it make sense to constrain the control input?
-        # bounds = bounds[:-2]
-        _A_initial_condition = np.eye(np.size(bounds), dtype=float)
-        self.prog.AddLinearConstraint(
-            A=_A_initial_condition,
-            lb=bounds,
-            ub=bounds,
-            vars=_s[:, 0]
+        # Add Constraints and Objective Function:
+        self.equality_constraint = self.prog.AddLinearConstraint(
+            A=A_eq,
+            lb=b_eq,
+            ub=b_eq,
+            vars=opt_vars,
         )
 
-        # Add Lower and Upper Bounds: (Fastest)
-        self.prog.AddBoundingBoxConstraint(-5, 5, x)
-        self.prog.AddBoundingBoxConstraint(-5, 5, y)
-        self.prog.AddBoundingBoxConstraint(-10, 10, dx)
-        self.prog.AddBoundingBoxConstraint(-10, 10, dy)
-        self.prog.AddBoundingBoxConstraint(-limit, limit, ux)
-        self.prog.AddBoundingBoxConstraint(-limit, limit, uy)
+        self.inequality_constraint = self.prog.AddLinearConstraint(
+            A=A_ineq,
+            lb=b_ineq,
+            ub=-b_ineq,
+            vars=opt_vars,
+        )
 
-        # Collocation Constraints: Python Function
-        def hermite_simpson_collocation_func(z):
-            _collocation = z[0][1:] - z[0][:-1] - z[1][:-1] * self._dt
-            _midpoint = z[2][:] - (1.0 / 2.0) * (z[0][:-1] + z[0][1:]) + (1 / 8) * self._dt * (z[1][:-1] - z[1][1:])
-            return (_collocation, _midpoint)
-
-        ddx, ddy = (ux - friction * dx) / mass, (uy - friction * dy) / mass
-        _x_collocation, _x_midpoint = hermite_simpson_collocation_func([x,  dx, x_m])
-        _dx_collocation, _dx_midpoint = hermite_simpson_collocation_func([dx, ddx, dx_m])
-        _y_collocation, _y_midpoint = hermite_simpson_collocation_func([y,  dy, y_m])
-        _dy_collocation, _dy_midpoint = hermite_simpson_collocation_func([dy, ddy, dy_m])
-        _expr_array = np.asarray(
-            [_x_collocation, _x_midpoint,
-            _dx_collocation, _dx_midpoint,
-            _y_collocation, _y_midpoint,
-            _dy_collocation, _dy_midpoint]
-        ).flatten()
-
-        bounds = np.zeros(((8 * (self._nodes-1)),), dtype=float)
-        self.prog.AddLinearConstraint(
-            _expr_array,
-            lb=bounds,
-            ub=bounds
-            )
-
-        # Objective Function Formulation:
-        target_positions = self.get_input_port(self.target_input).Eval(context)
-        target_positions = np.reshape(target_positions, (2, 1))
-
-        # For Debugging:
-        self._target_positions = target_positions
-
-        _error = _s[:2, :] - target_positions
-        _weight_distance, _weight_effort = 1.0, 0.0
-        _minimize_distance = _weight_distance * np.sum(_error ** 2, axis=0)
-        _minimize_effort = _weight_effort * np.sum(ux ** 2 + uy ** 2, axis=0)
-        _cost = np.sum(_minimize_distance + _minimize_effort, axis=0)
-        objective_function = self.prog.AddQuadraticCost(
-            _cost,
+        self.objective_function = self.prog.AddQuadraticCost(
+            Q=H,
+            b=f,
+            vars=opt_vars,
             is_convex=True,
         )
 
-        # Good for debugging:
-        # assert objective_function.evaluator().is_convex()
-
         # Solve the program:
         """OSQP:"""
-        osqp = OsqpSolver()
-        solver_options = SolverOptions()
-        solver_options.SetOption(osqp.solver_id(), "max_iter", 10000)
-        solver_options.SetOption(osqp.solver_id(), "polish", True)
-        solver_options.SetOption(osqp.solver_id(), "warm_start", True)
-        solver_options.SetOption(osqp.solver_id(), "verbose", False)
-        self.solution = osqp.Solve(
+        self.osqp = OsqpSolver()
+        self.solver_options = SolverOptions()
+        self.solver_options.SetOption(self.osqp.solver_id(), "max_iter", 10000)
+        self.solver_options.SetOption(self.osqp.solver_id(), "polish", True)
+        self.solver_options.SetOption(self.osqp.solver_id(), "warm_start", True)
+        self.solver_options.SetOption(self.osqp.solver_id(), "verbose", False)
+        self.solution = self.osqp.Solve(
             self.prog,
             self._warm_start,
-            solver_options,
+            self.solver_options,
         )
 
+        # Parse Solution:
+        self.parse_solution(context, event)
+    
+    # Helper Functions:
+    def compute_acceleration(self, u: np.ndarray, dx: np.ndarray) -> np.ndarray:
+        return np.asarray([(u[:] - self._friction * dx[:]) / self._mass]).flatten()
+
+    def parse_solution(self, context, event):
         if not self.solution.is_success():
             print(f"Optimization did not solve!")
             print(f"Solver Status: {self.solution.get_solver_details().status_val}")
-            print(f"Objective Function Convex: {objective_function.evaluator().is_convex()}")
+            print(f"Objective Function Convex: {self.objective_function.evaluator().is_convex()}")
             pdb.set_trace()
-            
 
-        # Store Solution for Output:
-        def compute_acceleration(u: np.ndarray, dx: np.ndarray) -> np.ndarray:
-            return np.asarray([(u[:] - friction * dx[:]) / mass]).flatten()
+        x_sol = np.reshape(self.solution.GetSolution(self._opt_x), (self._full_size, -1))
+        x_m_sol = np.reshape(self.solution.GetSolution(self._opt_x_m), (self._state_size, -1))
 
-        ddx = compute_acceleration(self.solution.GetSolution(ux), self.solution.GetSolution(dx))
-        ddy = compute_acceleration(self.solution.GetSolution(uy), self.solution.GetSolution(dy))
+        ddx = self.compute_acceleration(x_sol[-2, :], x_sol[2, :])
+        ddy = self.compute_acceleration(x_sol[-1, :], x_sol[3, :])
 
-        self._full_state_trajectory = np.vstack([
-            self.solution.GetSolution(x), self.solution.GetSolution(y),
-            self.solution.GetSolution(dx), self.solution.GetSolution(dy),
-            ddx, ddy
-            ]).flatten()
+        self._full_state_trajectory = np.concatenate(
+            [
+                x_sol[0, :], x_sol[1, :],
+                x_sol[2, :], x_sol[3, :],
+                ddx, ddy
+            ],
+            axis=0,
+        )
 
-        self._warm_start = np.concatenate([
-            self.solution.GetSolution(x), self.solution.GetSolution(x_m),
-            self.solution.GetSolution(y), self.solution.GetSolution(y_m),
-            self.solution.GetSolution(dx), self.solution.GetSolution(dx_m),
-            self.solution.GetSolution(dy), self.solution.GetSolution(dy_m),
-            self.solution.GetSolution(ux), self.solution.GetSolution(uy)
+        self._warm_start = np.concatenate(
+            [
+                x_sol[0, :], x_sol[1, :],
+                x_sol[2, :], x_sol[3, :],
+                x_sol[4, :], x_sol[5, :],
+                x_m_sol[0, :], x_m_sol[1, :],
+                x_m_sol[2, :], x_m_sol[3, :],
             ], 
-            axis=0
+            axis=0,
         )
 
         # How can I clean this up?
         a_state = context.get_mutable_abstract_state(self.state_index)
         a_state.set_value(self._full_state_trajectory)
+
+    def update_qp(self, context, event):
+        # Get Input Port Values and Convert to Jax Array:
+        initial_conditions = jnp.asarray(self.get_input_port(self.initial_condition_input).Eval(context))
+        target_positions = jnp.asarray(self.get_input_port(self.target_input).Eval(context))
+
+        # Compute A and b matricies for equality constraints:
+        A_eq = jacfwd(self.equality_func)(self._setpoint, initial_conditions)
+        b_eq = self.equality_func(self._setpoint, initial_conditions)
+
+        # Compute A and b matricies for inequality constraints:
+        A_ineq = jacfwd(self.inequality_func)(self._setpoint)
+        b_ineq = self.inequality_func(self._setpoint)
+        
+        # Compute H and f matrcies for objective function:
+        H = jax.hessian(self.objective_func)(self._setpoint, target_positions)
+        f = jacfwd(self.objective_func)(self._setpoint, target_positions)
+
+        # Update Constraint and Objective Function:
+        self.equality_constraint.evaluator().UpdateCoefficients(
+            new_A=A_eq, 
+            new_lb=b_eq,
+            new_ub=b_eq,
+        )
+
+        self.inequality_constraint.evaluator().UpdateCoefficients(
+            new_A=A_ineq,
+            new_lb=b_ineq,
+            new_ub=-b_ineq,
+        )
+
+        self.objective_function.evaluator().UpdateCoefficients(
+            new_Q=H,
+            new_b=f,
+        )
+
+        # Solve Updated Optimization:
+        self.solution = self.osqp.Solve(
+            self.prog,
+            self._warm_start,
+            self.solver_options,
+        )
+
+        # Parse Solution:
+        self.parse_solution(context, event)
 
 
 # Test Instantiation:

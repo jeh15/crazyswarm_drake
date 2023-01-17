@@ -8,7 +8,8 @@ from pydrake.systems.framework import DiagramBuilder
 import pdb
 
 # Custom LeafSystems:
-import motion_planner_jax
+# import motion_planner
+import motion_planner_jax as motion_planner
 import reference_trajectory
 import trajectory_parser
 import crazyswarm_class
@@ -41,7 +42,7 @@ driver_reference = reference_trajectory.FigureEight(config=params)
 reference = builder.AddSystem(driver_reference)
 
 # Motion Planner:
-driver_planner = motion_planner_jax.QuadraticProgram(config=params)
+driver_planner = motion_planner.QuadraticProgram(config=params)
 planner = builder.AddSystem(driver_planner)
 
 # Trajectory Parser:

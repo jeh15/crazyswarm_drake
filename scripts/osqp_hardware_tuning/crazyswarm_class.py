@@ -70,8 +70,7 @@ class CrazyswarmSystem(LeafSystem):
                 print(f"Time Helper not connected...")
 
             # Define Suscriber Callback for State Estimation:
-            rospy.Subscriber("/cf4/log2", GenericLogData, subscriber_callback)
-
+            rospy.Subscriber("/cf4/log1", GenericLogData, subscriber_callback)
 
             # Save Ground Position:
             self._land_position = self.cf.position()
@@ -157,8 +156,10 @@ class CrazyswarmSystem(LeafSystem):
         def subscriber_callback(data):
             c = 9.80665
             self.estimated_states = np.array(
-                [data.values[0], data.values[1], data.values[2],
-                data.values[3] * c, data.values[4] * c, data.values[5] * c], 
+                [
+                    data.values[0], data.values[1], data.values[2],
+                    data.values[3] * c, data.values[4] * c, data.values[5] * c,
+                ], 
                 dtype=float,
             )
 
