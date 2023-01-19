@@ -77,9 +77,10 @@ class QuadraticProgram(LeafSystem):
 
         """ Declare Input: """
         # Full State From CrazySwarm: (x, y, z, dx, dy, dz, ddx, ddy, ddz)
+        # Full State From Trajectory Parser (SIM): (x, y, dx, dy, ddx, ddy)
         self.initial_condition_input = self.DeclareVectorInputPort(
             "initial_condition",
-            9,
+            6,
         ).get_index()
 
         self.target_input = self.DeclareVectorInputPort(
@@ -348,6 +349,30 @@ class QuadraticProgram(LeafSystem):
             num_states=int(self._full_size),
             num_nodes=int(self._nodes),
         )
+
+        # # TEST OUTPUTS:
+        # dummy_input = jnp.concatenate(
+        #     [
+        #         1 * jnp.ones((self._nodes,)),
+        #         2 * jnp.ones((self._nodes,)),
+        #         3 * jnp.ones((self._nodes,)),
+        #         4 * jnp.ones((self._nodes,)),
+        #         5 * jnp.ones((self._nodes,)),
+        #         6 * jnp.ones((self._nodes,)),
+        #         11 * jnp.ones((self._nodes-1,)),
+        #         12 * jnp.ones((self._nodes-1,)),
+        #         13 * jnp.ones((self._nodes-1,)),
+        #         14 * jnp.ones((self._nodes-1,)),
+        #         15 * jnp.ones((self._nodes-1,)),
+        #         16 * jnp.ones((self._nodes-1,)),
+        #     ]
+        # )
+        # # TEST FUNC:
+        # self.equality_func(dummy_input, initial_conditions)
+        # self.inequality_func(dummy_input)
+        # self.objective_func(dummy_input, target_positions)
+        
+        # pdb.set_trace()
 
         # Compute A and b matricies for equality constraints:
         A_eq = jacfwd(self.equality_func)(self._setpoint, initial_conditions)

@@ -11,18 +11,23 @@ from pydrake.systems.primitives import LogVectorOutput
 import pdb
 
 # Custom LeafSystems:
-import motion_planner
+import motion_planner_jax as motion_planner
 import reference_trajectory
 import trajectory_parser
 
 
 # Convenient Data Class:
-def get_config():
+def get_config() -> ml_collections.ConfigDict():
     config = ml_collections.ConfigDict()
-    config.nodes = 21           # (Discretized Points)
-    config.time_horizon = 1.0   # (Time Seconds)
-    config.control_horizon = 3  # (Node to control to)
-    config.state_dimension = 2  # (x, y)
+    # Control Rates:
+    config.motion_planner_rate = 1.0 / 10.0
+    config.reference_trajectory_rate = 1.0 / 10.0
+    config.crazyswarm_rate = 1.0 / 100.0
+    # Model Parameters:
+    config.nodes = 21                   # (Discretized Points)
+    config.control_horizon = 11         # (Node to control to) Not used
+    config.state_dimension = 2          # (x, y)
+    config.time_horizon = 1.0
     config.dt = config.time_horizon / (config.nodes - 1.0)
     return config
 
@@ -102,13 +107,12 @@ ax.set_xlim([-3, 3])  # X Lim
 ax.set_ylim([-3, 3])  # Y Lim
 ax.set_xlabel('X')  # X Label
 ax.set_ylabel('Y')  # Y Label
-ax.set_title('Reference + Planner Animation:')
+ax.set_title('Parser Animation:')
 video_title = "simulation"
 
 # Initialize Patch:
 c = Circle((0, 0), radius=0.1, color='cornflowerblue')
 r = Circle((0, 0), radius=0.1, color='red')
-k = Circle((0, 0), radius=0.1, color='black')
 ax.add_patch(c)
 ax.add_patch(r)
 

@@ -12,12 +12,11 @@ from jax import (
     jacrev
 )
 
+from pydrake.solvers import mathematicalprogram as mp
 from pydrake.common.value import Value
-from pydrake.all import (
-    MathematicalProgram,
-    SolverOptions,
-    OsqpSolver
-)
+from pydrake.solvers.osqp import OsqpSolver
+from pydrake.solvers.mathematicalprogram import SolverOptions
+
 from pydrake.systems.framework import (
     LeafSystem,
     PublishEvent,
@@ -41,20 +40,21 @@ class QuadraticProgram(LeafSystem):
         self._dt = config.dt
         self._mass = 0.027 # Actual Crazyflie Mass
         self._friction = 0.01
+        self._tol = 1e-03
 
         # State Size for Optimization: (Seems specific to this implementation should not be a config param)
         self._state_size = self._state_dimension * 2
         self._full_size = self._state_dimension * 3
         self._setpoint = jnp.zeros(
-            (self._full_size * self._nodes + self._full_size * (self._nodes - 1),),
+            (self._full_size * self._nodes,),
             dtype=float,
         )
         self._state_bounds = jnp.asarray(
-            [5, 10, 0.05],
+            [5, 10, 0.5],
             dtype=float,
         )
         self._weights = jnp.asarray(
-            [1.0, 0.0],
+            [1.0, 0.1],
             dtype=float,
         )
 
@@ -65,7 +65,7 @@ class QuadraticProgram(LeafSystem):
         )
 
         self._warm_start = np.zeros(
-            (self._full_size * self._nodes + self._full_size * (self._nodes - 1),),
+            (self._full_size * self._nodes,),
             dtype=float,
         )
 
@@ -130,12 +130,12 @@ class QuadraticProgram(LeafSystem):
     # TODO: JIT Hessian Function
 
     @staticmethod
-    @partial(jit, static_argnames=['mass', 'friction', 'limit', 'dt', 'num_states', 'num_nodes'])
-    def _equality_constraints(q: jax.Array, initial_conditions: jax.Array, mass: float, friction: float, limit: float, dt: float,  num_states: int, num_nodes: int) -> jnp.ndarray:
+    @partial(jit, static_argnames=['mass', 'friction', 'limit', 'dt', 'num_states'])
+    def _equality_constraints(q: jax.Array, initial_conditions: jax.Array, mass: float, friction: float, limit: float, dt: float,  num_states: int) -> jnp.ndarray:
         """
         Helper Functions:
             1. Convert Acceleration Data to Control
-            2. Hermite-Simpson Collocation
+            2. Euler Collocation
         """
         # Convert Acceleration Data to Control:
         def _compute_control(ddq: float, dq: float, mass: float, friction: float, limit: float) -> float:
@@ -149,11 +149,10 @@ class QuadraticProgram(LeafSystem):
                 u,
             )
 
-        # Hermite-Simpson Collocation  :      
+        # Euler Collocation:      
         def _collocation_constraint(x: jax.Array, dt: float) -> jnp.ndarray:
-            collocation = x[0][1:] - x[0][:-1] - (1.0 / 6.0) * dt * (x[1][:-1] + 4.0 * x[3][:] + x[1][1:])
-            midpoint = x[2][:] - (1.0 / 2.0) * (x[0][:-1] + x[0][1:]) + (1.0 / 8.0) * dt * (x[1][:-1] - x[1][1:])
-            return jnp.concatenate([collocation, midpoint], axis=0)
+            collocation = x[0][1:] - x[0][:-1] - x[1][:-1] * dt
+            return collocation
 
         """
         Equality Constraints:
@@ -163,11 +162,7 @@ class QuadraticProgram(LeafSystem):
         # TODO: Params passed as PyTree
 
         # Sort State Vector:
-        q_m = q[(num_states * num_nodes):]
-        q = q[:(num_states * num_nodes)]
-
         q = q.reshape((num_states, -1))
-        q_m = q_m.reshape((num_states, -1))
 
         # State Nodes:
         x = q[0, :]
@@ -176,14 +171,6 @@ class QuadraticProgram(LeafSystem):
         dy = q[3, :]
         ux = q[4, :]
         uy = q[5, :]
-
-        # State Mid Points:
-        x_m = q_m[0, :]
-        y_m = q_m[1, :]
-        dx_m = q_m[2, :]
-        dy_m = q_m[3, :]
-        ux_m = q_m[4, :]
-        uy_m = q_m[5, :]
 
         # Initial Conditions:
         # Conver Acceleration to Control Input:
@@ -211,14 +198,22 @@ class QuadraticProgram(LeafSystem):
             ux[0] - ux_ic,
             uy[0] - uy_ic,
         ], dtype=float)
+
+        # # 1. Initial Condition Constraints:
+        # initial_condition = jnp.array([
+        #     x[0] - initial_conditions[0],
+        #     y[0] - initial_conditions[1],
+        #     dx[0] - initial_conditions[3],
+        #     dy[0] - initial_conditions[4],
+        # ], dtype=float)
         
         # 2. Collocation Constraints:
-        ddx, ddx_m = (ux - friction * dx) / mass, (ux_m - friction * dx_m) / mass
-        ddy, ddy_m = (uy - friction * dy) / mass, (uy_m - friction * dy_m) / mass
-        x_defect = _collocation_constraint([x, dx, x_m, dx_m], dt)
-        y_defect = _collocation_constraint([y, dy, y_m, dy_m], dt)
-        dx_defect = _collocation_constraint([dx, ddx, dx_m, ddx_m], dt)
-        dy_defect = _collocation_constraint([dy, ddy, dy_m, ddy_m], dt)
+        ddx = (ux - friction * dx) / mass
+        ddy = (uy - friction * dy) / mass
+        x_defect = _collocation_constraint([x, dx], dt)
+        y_defect = _collocation_constraint([y, dy], dt)
+        dx_defect = _collocation_constraint([dx, ddx], dt)
+        dy_defect = _collocation_constraint([dy, ddy], dt)
 
         equality_constraint = jnp.concatenate(
             [
@@ -233,8 +228,8 @@ class QuadraticProgram(LeafSystem):
         return equality_constraint
 
     @staticmethod
-    @partial(jit, static_argnames=['num_states', 'num_nodes'])
-    def _inequality_constraints(q: jax.Array, state_bounds: jax.Array, num_states: int, num_nodes: int) -> jnp.ndarray:
+    @partial(jit, static_argnames=['num_states'])
+    def _inequality_constraints(q: jax.Array, state_bounds: jax.Array, num_states: int) -> jnp.ndarray:
         """
         Inquality Constraints:
             1. State Bounds
@@ -242,11 +237,7 @@ class QuadraticProgram(LeafSystem):
         # TODO: Params passed as PyTree
 
         # Sort State Vector:
-        q_m = q[(num_states * num_nodes):]
-        q = q[:(num_states * num_nodes)]
-
         q = q.reshape((num_states, -1))
-        q_m = q_m.reshape((num_states, -1))
 
         # State Nodes:
         x = q[0, :]
@@ -256,22 +247,18 @@ class QuadraticProgram(LeafSystem):
         ux = q[4, :]
         uy = q[5, :]
 
-        # State Mid Points:
-        x_m = q_m[0, :]
-        y_m = q_m[1, :]
-        dx_m = q_m[2, :]
-        dy_m = q_m[3, :]
-        ux_m = q_m[4, :]
-        uy_m = q_m[5, :]
+        xlim = x - state_bounds[0]
+        ylim = y - state_bounds[0]
+        dxlim = dx - state_bounds[1]
+        dylim = dy- state_bounds[1]
+        uxlim = ux - state_bounds[2]
+        uylim = uy - state_bounds[2]
 
         bounds = jnp.concatenate(
             [
-                x - state_bounds[0], x_m - state_bounds[0],
-                y - state_bounds[0], y_m - state_bounds[0],
-                dx - state_bounds[1], dx_m - state_bounds[1],
-                dy - state_bounds[1], dy_m - state_bounds[1],
-                ux - state_bounds[2], ux_m - state_bounds[2],
-                uy - state_bounds[2], uy_m - state_bounds[2],
+                xlim, ylim,
+                dxlim, dylim,
+                uxlim, uylim,
             ],
             axis=0
         )
@@ -279,12 +266,8 @@ class QuadraticProgram(LeafSystem):
         return bounds
 
     @staticmethod
-    @partial(jit, static_argnames=['dt', 'num_states', 'num_nodes'])
-    def _objective_function(q: jax.Array, target_position: jax.Array, w: jax.Array, dt: float, num_states: int, num_nodes: int) -> jnp.ndarray:
-        # Helper Function:
-        def error_func(x: jax.Array, target_position: jax.Array) -> jnp.ndarray:
-            return x - target_position.reshape(-1, 1)
-
+    @partial(jit, static_argnames=['num_states'])
+    def _objective_function(q: jax.Array, target_position: jax.Array, w: jax.Array, num_states: int) -> jnp.ndarray:
         """
         Objective Function:
             1. State Error Objective
@@ -292,27 +275,22 @@ class QuadraticProgram(LeafSystem):
         """
 
         # Sort State Vector:
-        q_m = q[(num_states * num_nodes):]
-        q = q[:(num_states * num_nodes)]
-
         q = q.reshape((num_states, -1))
-        q_m = q_m.reshape((num_states, -1))
 
         # State Nodes:
-        x = q[:2, :]
-        u = q[4:6, :]
+        x = q[0, :]
+        y = q[1, :]
+        ux = q[4, :]
+        uy = q[5, :]
 
-        # State Mid Points:
-        x_m = q_m[:2, :]
-        u_m = q_m[4:6, :]
+        error = jnp.vstack(
+            [x - target_position[0], y - target_position[1]],
+            dtype=float,
+        )
 
-        error_i = error_func(x[:, :-1], target_position)
-        error_j = error_func(x_m[:, :], target_position)
-        error_k = error_func(x[:, 1:], target_position)
-
-        minimize_error = w[0] * (dt / 6.0) * jnp.sum(error_i ** 2 + 4 * (error_j ** 2) + error_k ** 2, axis=0)
-
-        objective_function = jnp.sum(minimize_error, axis=0)
+        minimize_error = w[0] * jnp.sum(error ** 2, axis=0)
+        minimize_effort = w[1] * jnp.sum(ux ** 2 + uy ** 2, axis=0)
+        objective_function = jnp.sum(minimize_error + minimize_effort, axis=0)
 
         return objective_function
 
@@ -330,23 +308,19 @@ class QuadraticProgram(LeafSystem):
             limit=float(self._state_bounds[2]),
             dt=self._dt,
             num_states=int(self._full_size),
-            num_nodes=int(self._nodes),
         )
 
         self.inequality_func = lambda x: self._inequality_constraints(
             q=x,
             state_bounds=self._state_bounds,
             num_states=int(self._full_size),
-            num_nodes=int(self._nodes),
         )
 
         self.objective_func = lambda x, qd: self._objective_function(
             q=x,
             target_position=qd,
             w=self._weights,
-            dt=self._dt,
             num_states=int(self._full_size),
-            num_nodes=int(self._nodes),
         )
 
         # Compute A and b matricies for equality constraints:
@@ -362,36 +336,30 @@ class QuadraticProgram(LeafSystem):
         f = jacfwd(self.objective_func)(self._setpoint, target_positions)
 
         # Construct OSQP Problem:
-        self.prog = MathematicalProgram()
+        self.prog = mp.MathematicalProgram()
 
         # State and Control Input Variables:
-        self._opt_x = self.prog.NewContinuousVariables(self._full_size * self._nodes, "x")
-
-        # Mid Point Decision Variables for Hermite-Simpson:
-        self._opt_x_m = self.prog.NewContinuousVariables(self._full_size * (self._nodes - 1), "x_m")
-
-        # Concatenate Optimaztion Variables:
-        opt_vars = np.concatenate([self._opt_x, self._opt_x_m], axis=0)
+        self.opt_vars = self.prog.NewContinuousVariables(self._full_size * self._nodes, "x")
 
         # Add Constraints and Objective Function:
         self.equality_constraint = self.prog.AddLinearConstraint(
             A=A_eq,
             lb=b_eq,
             ub=b_eq,
-            vars=opt_vars,
+            vars=self.opt_vars,
         )
 
         self.inequality_constraint = self.prog.AddLinearConstraint(
             A=A_ineq,
             lb=-b_ineq,
             ub=b_ineq,
-            vars=opt_vars,
+            vars=self.opt_vars,
         )
 
         self.objective_function = self.prog.AddQuadraticCost(
             Q=H,
             b=f,
-            vars=opt_vars,
+            vars=self.opt_vars,
             is_convex=True,
         )
 
@@ -399,8 +367,14 @@ class QuadraticProgram(LeafSystem):
         """OSQP:"""
         self.osqp = OsqpSolver()
         self.solver_options = SolverOptions()
+        self.solver_options.SetOption(self.osqp.solver_id(), "rho", 1e-03)
+        self.solver_options.SetOption(self.osqp.solver_id(), "eps_abs", 1e-06)
+        self.solver_options.SetOption(self.osqp.solver_id(), "eps_rel", 1e-06)
+        self.solver_options.SetOption(self.osqp.solver_id(), "eps_prim_inf", 1e-06)
+        self.solver_options.SetOption(self.osqp.solver_id(), "eps_dual_inf", 1e-06)
         self.solver_options.SetOption(self.osqp.solver_id(), "max_iter", 3000)
         self.solver_options.SetOption(self.osqp.solver_id(), "polish", True)
+        self.solver_options.SetOption(self.osqp.solver_id(), "polish_refine_iter", 10)
         self.solver_options.SetOption(self.osqp.solver_id(), "warm_start", True)
         self.solver_options.SetOption(self.osqp.solver_id(), "verbose", False)
         self.solution = self.osqp.Solve(
@@ -423,8 +397,7 @@ class QuadraticProgram(LeafSystem):
             print(f"Objective Function Convex: {self.objective_function.evaluator().is_convex()}")
             pdb.set_trace()
 
-        x_sol = np.reshape(self.solution.GetSolution(self._opt_x), (self._full_size, -1))
-        x_m_sol = np.reshape(self.solution.GetSolution(self._opt_x_m), (self._full_size, -1))
+        x_sol = np.reshape(self.solution.GetSolution(self.opt_vars), (self._full_size, -1))
 
         ddx = self.compute_acceleration(x_sol[-2, :], x_sol[2, :])
         ddy = self.compute_acceleration(x_sol[-1, :], x_sol[3, :])
@@ -443,9 +416,6 @@ class QuadraticProgram(LeafSystem):
                 x_sol[0, :], x_sol[1, :],
                 x_sol[2, :], x_sol[3, :],
                 x_sol[4, :], x_sol[5, :],
-                x_m_sol[0, :], x_m_sol[1, :],
-                x_m_sol[2, :], x_m_sol[3, :],
-                x_m_sol[4, :], x_m_sol[5, :],
             ], 
             axis=0,
         )

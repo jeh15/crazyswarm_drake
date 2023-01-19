@@ -31,10 +31,6 @@ class TrajectoryParser(LeafSystem):
         self._full_size = self._state_dimension * 3    # (x, y, dx, dy, ddx, ddy)
         self._time_trajectory = np.linspace(0.0, self._time_horizon, self._nodes)
 
-        """ Initialize Output Values """
-        # Motion Planner is 2D
-        self.current_trajectory = np.zeros((self._full_size,), dtype=float)
-
         """ Initialize Abstract States: (Output Only) """
         # Motion Planner is 2D
         output_size = np.zeros((self._full_size,))
@@ -103,6 +99,7 @@ class TrajectoryParser(LeafSystem):
         def periodic_output_event(context, event):
             # Interpolate trajectory to get current value:
             current_time = context.get_time() - self._trajectory_time
+
             # Interpolate from Polynomial:
             current_trajectory = self.trajectory.value(current_time)
 

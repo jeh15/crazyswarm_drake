@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FFMpegWriter
 from matplotlib.patches import Circle
 import numpy as np
+import ml_collections
 
 from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import DiagramBuilder
@@ -10,8 +11,26 @@ from pydrake.systems.primitives import LogVectorOutput, ConstantVectorSource
 import pdb
 
 # Custom LeafSystems:
-import motion_planner
+import motion_planner_jax as motion_planner
 import reference_trajectory
+
+# Convenient Data Class:
+def get_config() -> ml_collections.ConfigDict():
+    config = ml_collections.ConfigDict()
+    # Control Rates:
+    config.motion_planner_rate = 1.0 / 10.0
+    config.reference_trajectory_rate = 1.0 / 10.0
+    config.crazyswarm_rate = 1.0 / 100.0
+    # Model Parameters:
+    config.nodes = 21                   # (Discretized Points)
+    config.control_horizon = 11         # (Node to control to) Not used
+    config.state_dimension = 2          # (x, y)
+    config.time_horizon = 1.0
+    config.dt = config.time_horizon / (config.nodes - 1.0)
+    return config
+
+# Create Config Dict:
+params = get_config()
 
 # Create a block diagram containing our system.
 builder = DiagramBuilder()
@@ -21,7 +40,7 @@ driver_reference = reference_trajectory.FigureEight()
 reference = builder.AddSystem(driver_reference)
 
 # Motion Planner:
-driver_planner = motion_planner.QuadraticProgram()
+driver_planner = motion_planner.QuadraticProgram(config=params)
 planner = builder.AddSystem(driver_planner)
 
 # Create Dummy Inputs:
