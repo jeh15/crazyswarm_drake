@@ -11,8 +11,8 @@ import pdb
 
 # Custom LeafSystems:
 # import motion_planner
-import motion_planner_jax as motion_planner
-# import motion_planner_jax_euler as motion_planner
+# import motion_planner_jax as motion_planner
+import motion_planner_jax_euler as motion_planner
 import reference_trajectory
 import trajectory_parser
 import crazyswarm_class
