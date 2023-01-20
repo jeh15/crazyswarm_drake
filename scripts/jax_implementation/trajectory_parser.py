@@ -15,11 +15,11 @@ from pydrake.trajectories import PiecewisePolynomial
 
 
 class TrajectoryParser(LeafSystem):
-    def __init__(self, config: ml_collections.ConfigDict):
+    def __init__(self, config: ml_collections.ConfigDict()):
         LeafSystem.__init__(self)
         # Class Parameters: (Could be contained in Config)
-        self._INPUT_UPDATE_RATE = 1.0 / 10.0     # MATCH MOTION PLANNER
-        self._OUTPUT_UPDATE_RATE = 1.0 / 100.0  # MATCH CRAZYSWARM
+        self._INPUT_UPDATE_RATE = config.motion_planner_rate    # MATCH MOTION PLANNER
+        self._OUTPUT_UPDATE_RATE = config.crazyswarm_rate       # MATCH CRAZYSWARM
 
         # Make Config Params Class Variables:
         self._nodes = config.nodes
@@ -30,10 +30,6 @@ class TrajectoryParser(LeafSystem):
         # Class Specific Parameters:
         self._full_size = self._state_dimension * 3    # (x, y, dx, dy, ddx, ddy)
         self._time_trajectory = np.linspace(0.0, self._time_horizon, self._nodes)
-
-        """ Initialize Output Values """
-        # Motion Planner is 2D
-        self.current_trajectory = np.zeros((self._full_size,), dtype=float)
 
         """ Initialize Abstract States: (Output Only) """
         # Motion Planner is 2D
@@ -59,8 +55,8 @@ class TrajectoryParser(LeafSystem):
             self._trajectory_time = 0.0
             # Motion Planner is 2D:
             self.trajectory = PiecewisePolynomial.FirstOrderHold(
-                breaks=self._time_trajectory,
-                samples=np.zeros((self._full_size, self._nodes), dtype=float),
+                breaks=self._time_trajectory[1:],
+                samples=np.zeros((self._full_size, self._nodes - 1), dtype=float),
             )
 
         self.DeclareInitializationEvent(
@@ -71,6 +67,7 @@ class TrajectoryParser(LeafSystem):
             )
 
         """ Declare Update Event: """
+        # (Skip First Node)
         def periodic_input_event(context, event):
             # Get Current Time:
             self._trajectory_time = context.get_time()
@@ -78,10 +75,15 @@ class TrajectoryParser(LeafSystem):
             motion_plan = self.get_input_port(0).Eval(context)
             # Reshape the motion plan for easy manipulation:
             motion_plan = np.reshape(motion_plan, (-1, self._nodes))
+            dq = motion_plan[2:4, :]
+            ddq = motion_plan[4:, :]
+            dddq = np.gradient(ddq, self._time_trajectory, axis=1)
+            motion_plan_dot = np.concatenate([dq, ddq, dddq], axis=0)
             # Construct motion plan into Polynomial for interpolation:
-            self.trajectory = PiecewisePolynomial.FirstOrderHold(
-                breaks=self._time_trajectory,
-                samples=motion_plan,
+            self.trajectory = PiecewisePolynomial.CubicHermite(
+                breaks=self._time_trajectory[1:],
+                samples=motion_plan[:, 1:],
+                samples_dot=motion_plan_dot[:, 1:],
             )
 
         self.DeclarePeriodicEvent(
@@ -97,14 +99,13 @@ class TrajectoryParser(LeafSystem):
         def periodic_output_event(context, event):
             # Interpolate trajectory to get current value:
             current_time = context.get_time() - self._trajectory_time
+
             # Interpolate from Polynomial:
             current_trajectory = self.trajectory.value(current_time)
 
-            # pdb.set_trace()  # Check Shape of Vector
-
-            # # Save For Debugging:
-            # self.current_trajectory = current_trajectory
-
+            # For Debugging:
+            self._current_trajectory = current_trajectory
+            
             # Update Abstract State:
             a_state = context.get_mutable_abstract_state(self.state_index)
             a_state.set_value(current_trajectory)
@@ -123,9 +124,5 @@ class TrajectoryParser(LeafSystem):
         # output.SetFromVector(self.current_trajectory)
         a_state = context.get_mutable_abstract_state(self.state_index)
         a_value = a_state.get_mutable_value()
+        self._output = a_value
         output.SetFromVector(a_value.get_mutable_value())
-
-    """
-    Begin testing trajectory parser in the loop.
-    Make sure inputs and outputs make sense.
-    """

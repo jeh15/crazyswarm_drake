@@ -6,7 +6,6 @@ import jax.numpy as jnp
 import ml_collections
 
 from jax import (
-    grad,
     jit,
     jacfwd,
     jacrev
@@ -37,7 +36,7 @@ class QuadraticProgram(LeafSystem):
         self._time_horizon = config.time_horizon
         self._state_dimension = config.state_dimension
         self._dt = config.dt
-        self._mass = 0.027 # Actual Crazyflie Mass
+        self._mass = 0.027  # Actual Crazyflie Mass
         self._friction = 0.01
 
         # State Size for Optimization: (Seems specific to this implementation should not be a config param)
@@ -165,7 +164,7 @@ class QuadraticProgram(LeafSystem):
         dy_m = q_m[3, :]
         ux_m = q_m[4, :]
         uy_m = q_m[5, :]
-       
+
         # 1. Initial Condition Constraints:
         initial_condition = jnp.array([
             x[0] - initial_conditions[0],
@@ -175,7 +174,7 @@ class QuadraticProgram(LeafSystem):
             ux[0] - initial_conditions[6],
             uy[0] - initial_conditions[7],
         ], dtype=float)
-        
+
         # 2. Collocation Constraints:
         ddx, ddx_m = (ux - friction * dx) / mass, (ux_m - friction * dx_m) / mass
         ddy, ddy_m = (uy - friction * dy) / mass, (uy_m - friction * dy_m) / mass
@@ -196,10 +195,8 @@ class QuadraticProgram(LeafSystem):
 
         return equality_constraint
 
-
     @partial(jit, static_argnums=(0,), static_argnames=['num_states', 'num_nodes'])
     def _inequality_constraints(self, q: jax.Array, state_bounds: jax.Array, num_states: int, num_nodes: int) -> jnp.ndarray:
-        print(f"COMPILED INEQUALITY CONSTRAINTS")
         """
         Inquality Constraints:
             1. State Bounds
@@ -244,7 +241,6 @@ class QuadraticProgram(LeafSystem):
 
     @partial(jit, static_argnums=(0,), static_argnames=['dt', 'num_states', 'num_nodes'])
     def _objective_function(self, q: jax.Array, target_position: jax.Array, w: jax.Array, dt: float, num_states: int, num_nodes: int) -> jnp.ndarray:
-        print(f"COMPILED OBJECTIVE FUNCTION")
         """
         Helper Functions:
             1. Calculate Error
@@ -257,7 +253,7 @@ class QuadraticProgram(LeafSystem):
 
         def _hermite_simpson_objective(x: jax.Array, w: float, dt: float) -> jnp.ndarray:
             return w * (dt / 6.0) * jnp.sum(x[0][:-1] ** 2 + 4 * (x[1][:] ** 2) + x[0][1:] ** 2, axis=0)
-        
+
         """
         Objective Function:
             1. State Error Objective
@@ -337,7 +333,6 @@ class QuadraticProgram(LeafSystem):
         initial_conditions = jnp.asarray(initial_conditions)
         target_positions = jnp.asarray(self.get_input_port(self.target_input).Eval(context))
 
-
         # Isolate Functions to Lambda Functions and wrap them in staticmethod:
         self.equality_func = lambda x, ic: self._equality_constraints(
             q=x,
@@ -374,7 +369,7 @@ class QuadraticProgram(LeafSystem):
         self._A_ineq_fn = jax.jit(jacfwd(self.inequality_func))
         A_ineq = self._A_ineq_fn(self._setpoint)
         b_ineq = -self.inequality_func(self._setpoint)
-        
+
         # Compute H and f matrcies for objective function:
         self._H_fn = jax.jit(jacfwd(jacrev(self.objective_func)))
         self._f_fn = jax.jit(jacfwd(self.objective_func))
@@ -462,7 +457,7 @@ class QuadraticProgram(LeafSystem):
         # Compute A and b matricies for inequality constraints:
         A_ineq = self._A_ineq_fn(self._setpoint)
         b_ineq = -self.inequality_func(self._setpoint)
-        
+
         # Compute H and f matrcies for objective function:
         H = self._H_fn(self._setpoint, target_positions)
         f = self._f_fn(self._setpoint, target_positions)

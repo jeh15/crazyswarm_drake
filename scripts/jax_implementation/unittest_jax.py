@@ -1,18 +1,22 @@
+import numpy as np
+import ml_collections
 import matplotlib.pyplot as plt
 from matplotlib.animation import FFMpegWriter
 from matplotlib.patches import Circle
-import numpy as np
-import ml_collections
 
 from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import DiagramBuilder
-from pydrake.systems.primitives import LogVectorOutput, ConstantVectorSource
 
 import pdb
 
 # Custom LeafSystems:
-import motion_planner_jax as motion_planner
+# import motion_planner
+# import motion_planner_jax as motion_planner
+import motion_planner_jax_euler as motion_planner
 import reference_trajectory
+import trajectory_parser
+import crazyswarm_class
+
 
 # Convenient Data Class:
 def get_config() -> ml_collections.ConfigDict():
@@ -29,6 +33,7 @@ def get_config() -> ml_collections.ConfigDict():
     config.dt = config.time_horizon / (config.nodes - 1.0)
     return config
 
+
 # Create Config Dict:
 params = get_config()
 
@@ -36,31 +41,46 @@ params = get_config()
 builder = DiagramBuilder()
 
 # Reference Motion:
-driver_reference = reference_trajectory.FigureEight()
+driver_reference = reference_trajectory.FigureEight(config=params)
 reference = builder.AddSystem(driver_reference)
 
 # Motion Planner:
 driver_planner = motion_planner.QuadraticProgram(config=params)
 planner = builder.AddSystem(driver_planner)
 
-# Create Dummy Inputs:
-driver_ic = ConstantVectorSource(np.zeros((6,), dtype=float))
-dummy_initial_condition = builder.AddSystem(driver_ic)
+# Trajectory Parser:
+driver_parser = trajectory_parser.TrajectoryParser(config=params)
+parser = builder.AddSystem(driver_parser)
+
+# Crazyswarm Controller:
+driver_crazyswarm = crazyswarm_class.CrazyswarmSystem(config=params)
+crazyswarm = builder.AddSystem(driver_crazyswarm)
 
 # Connect Systems:
+# Reference Out -> Motion Planner Target Position
 builder.Connect(
     reference.get_output_port(0),
     planner.get_input_port(driver_planner.target_input)
-    )
+)
 
+# Motion Planner Out -> Parser In
 builder.Connect(
-    dummy_initial_condition.get_output_port(0),
-    planner.get_input_port(driver_planner.initial_condition_input)
-    )
+    planner.get_output_port(0),
+    parser.get_input_port(0),
+)
 
-# Logger:
-logger_reference = LogVectorOutput(reference.get_output_port(0), builder)
-logger_planner = LogVectorOutput(planner.get_output_port(0), builder)
+# Parser Out -> Crazyswarm In
+builder.Connect(
+    parser.get_output_port(0),
+    crazyswarm.get_input_port(0),
+)
+
+# Crazyswarm Out -> Motion Planner Initial Condition
+builder.Connect(
+    crazyswarm.get_output_port(0),
+    planner.get_input_port(driver_planner.initial_condition_input),
+)
+
 diagram = builder.Build()
 
 # Set the initial conditions, x(0).
@@ -72,36 +92,33 @@ simulator.set_target_realtime_rate(1.0)
 simulator.Initialize()
 
 # Simulate System:
-FINAL_TIME = 5.0
+FINAL_TIME = 20.0
 dt = 1.0 / 100.0
 next_time_step = dt
 
-trajectory_history = []
-ic_history = []
+crazyswarm_out_history = []
+motion_planner_history = []
+reference_history = []
+parser_history = []
 
 while next_time_step <= FINAL_TIME:
     print(f"Drake Real Time Rate: {simulator.get_actual_realtime_rate()}")
-    simulator.AdvanceTo(next_time_step)
-    # Get Subsystem Context for ConstantSourceVector:
-    subsystem_context = driver_ic.GetMyContextFromRoot(context)
-    src_value = driver_ic.get_mutable_source_value(subsystem_context)
-    # Get next IC: (Pretend it controls only first 3 Nodes)
-    trajectory = np.reshape(
-        driver_planner._full_state_trajectory,
-        (-1, driver_planner._num_nodes)
-        )
-    trajectory_history.append(trajectory[:, :3])
-    new_ic = trajectory[:, 2]
-    ic_history.append(new_ic)
-    src_value.set_value(new_ic)
+    crazyswarm_out_history.append(driver_crazyswarm.full_state_output)
+    motion_planner_history.append(driver_planner._full_state_trajectory)
+    reference_history.append(driver_reference._reference_trajectory)
+    parser_history.append(driver_parser._current_trajectory)
+    try:
+        simulator.AdvanceTo(next_time_step)
+        next_time_step += dt
+    except:
+        print(f"Exception Occurred...")
+        driver_crazyswarm.execute_landing_sequence()
+        break
 
-    # Increment time step:
-    next_time_step += dt
+# Land the Drone:
+driver_crazyswarm.execute_landing_sequence()
 
-# Plot the results:
-log_planner = logger_planner.FindLog(context)
-log_reference = logger_reference.FindLog(context)
-
+pdb.set_trace()
 
 # Setup Figure: Initialize Figure / Axe Handles
 fig, ax = plt.subplots()
@@ -111,39 +128,33 @@ ax.set_xlim([-3, 3])  # X Lim
 ax.set_ylim([-3, 3])  # Y Lim
 ax.set_xlabel('X')  # X Label
 ax.set_ylabel('Y')  # Y Label
-ax.set_title('Reference + Planner Animation:')
+ax.set_title('Parser Animation:')
 video_title = "simulation"
 
 # Initialize Patch:
 c = Circle((0, 0), radius=0.1, color='cornflowerblue')
 r = Circle((0, 0), radius=0.1, color='red')
-k = Circle((0, 0), radius=0.1, color='black')
 ax.add_patch(c)
 ax.add_patch(r)
-ax.add_patch(k)
 
 # Setup Animation Writer:
 dpi = 300
 FPS = 20
-simulation_size = len(log_planner.sample_times())
-dummy_size = len(ic_history[:])
-dt = FINAL_TIME / dummy_size
+simulation_size = len(reference_history)
+dt = FINAL_TIME / simulation_size
 sample_rate = int(1 / (dt * FPS))
 writerObj = FFMpegWriter(fps=FPS)
 
-# Resampled based on dummy size:
-idx = np.round(np.linspace(0, simulation_size - 1, dummy_size)).astype(int)
-log_planner_position = log_planner.data()[:, idx]
-log_reference_position = log_reference.data()[:, idx]
-
 # Plot and Create Animation:
 with writerObj.saving(fig, video_title+".mp4", dpi):
-    for i in range(0, dummy_size, sample_rate):
+    for i in range(0, simulation_size, sample_rate):
         # Plot Reference Trajectory:
-        r.center = log_reference_position[0, i], log_reference_position[1, i]
+        r.center = reference_history[i][0], reference_history[i][1]
         # Update Patch:
-        c.center = log_planner_position[0, i], log_planner_position[1, i]
-        k.center = ic_history[i][0],  ic_history[i][1]
+        position = parser_history[i]
+        motion_plan = np.reshape(motion_planner_history[i], (6, -1))
+        c.center = position[0], position[1]
+        p.set_data(motion_plan[0, :], motion_plan[1, :])
         # Update Drawing:
         fig.canvas.draw()  # Update the figure with the new changes
         # Grab and Save Frame:

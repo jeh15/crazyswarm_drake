@@ -21,6 +21,7 @@ class FigureEight(LeafSystem):
         state_size = np.zeros((2,))
         state_init = Value[BasicVector_[float]](state_size)
         self.state_index = self.DeclareAbstractState(state_init)
+        self._reference_trajectory = np.asarray([0, 0], dtype=float)
 
         # Declare Output: Vector
         self.DeclareVectorOutputPort(
@@ -46,6 +47,13 @@ class FigureEight(LeafSystem):
         # Declare Update Event: Current Trajectory
         def on_periodic(context, event):
             _x, _y = self._figure_eight_trajectory(context)
+
+            # DEBUG:
+            self._reference_trajectory = np.asarray(
+                [_x, _y],
+                dtype=float,
+            )
+
             a_state = context.get_mutable_abstract_state(self.state_index)
             a_state.set_value(np.array([_x, _y], dtype=float))
 
