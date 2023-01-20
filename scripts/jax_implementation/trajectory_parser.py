@@ -3,6 +3,7 @@ import ml_collections
 
 # DEBUG:
 import pdb
+import timeit
 
 from pydrake.common.value import Value
 from pydrake.systems.framework import (

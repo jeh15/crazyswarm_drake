@@ -25,6 +25,7 @@ from pydrake.systems.framework import (
 )
 
 import pdb
+import timeit
 
 
 class QuadraticProgram(LeafSystem):
@@ -349,7 +350,7 @@ class QuadraticProgram(LeafSystem):
         self.solver_options.SetOption(self.osqp.solver_id(), "eps_dual_inf", 1e-06)
         self.solver_options.SetOption(self.osqp.solver_id(), "max_iter", 3000)
         self.solver_options.SetOption(self.osqp.solver_id(), "polish", True)
-        self.solver_options.SetOption(self.osqp.solver_id(), "polish_refine_iter", 10)
+        self.solver_options.SetOption(self.osqp.solver_id(), "polish_refine_iter", 3)
         self.solver_options.SetOption(self.osqp.solver_id(), "warm_start", True)
         self.solver_options.SetOption(self.osqp.solver_id(), "verbose", False)
         self.solution = self.osqp.Solve(
