@@ -126,28 +126,13 @@ class QuadraticProgram(LeafSystem):
         output_motion_plan.SetFromVector(a_value.get_mutable_value())
 
     # Jax Methods:
-    # TODO: Params -> PyTreeNode dataclass
-    # TODO: JIT Hessian Function
-
-    @staticmethod
-    @partial(jit, static_argnames=['mass', 'friction', 'limit', 'dt', 'num_states'])
-    def _equality_constraints(q: jax.Array, initial_conditions: jax.Array, mass: float, friction: float, limit: float, dt: float,  num_states: int) -> jnp.ndarray:
+    @partial(jit, static_argnums=(0,), static_argnames=['mass', 'friction', 'dt', 'num_states'])
+    def _equality_constraints(self, q: jax.Array, initial_conditions: jax.Array, mass: float, friction: float, dt: float,  num_states: int) -> jnp.ndarray:
+        print(f"COMPILED EQUALITY CONSTRAINTS")
         """
         Helper Functions:
-            1. Convert Acceleration Data to Control
-            2. Euler Collocation
+            1. Euler Collocation
         """
-        # Convert Acceleration Data to Control:
-        def _compute_control(ddq: float, dq: float, mass: float, friction: float, limit: float) -> float:
-            def _convert_to_control(ddq: float, dq: float, mass: float, friction: float) -> float:
-                return (ddq * mass + friction * dq)
-            u = _convert_to_control(ddq, dq, mass, friction)
-            return jax.lax.cond(
-                jnp.abs(u) > limit, 
-                lambda x: jnp.sign(x) * limit, 
-                lambda x: x, 
-                u,
-            )
 
         # Euler Collocation:      
         def _collocation_constraint(x: jax.Array, dt: float) -> jnp.ndarray:
@@ -159,7 +144,6 @@ class QuadraticProgram(LeafSystem):
             1. Initial Condition
             2. Collocation Constraint
         """
-        # TODO: Params passed as PyTree
 
         # Sort State Vector:
         q = q.reshape((num_states, -1))
@@ -172,40 +156,15 @@ class QuadraticProgram(LeafSystem):
         ux = q[4, :]
         uy = q[5, :]
 
-        # Initial Conditions:
-        # Conver Acceleration to Control Input:
-        ux_ic = _compute_control(
-            ddq=initial_conditions[-3],
-            dq=initial_conditions[3],
-            mass=mass,
-            friction=friction,
-            limit=limit,
-        )
-        uy_ic = _compute_control(
-            ddq=initial_conditions[-2],
-            dq=initial_conditions[4],
-            mass=mass,
-            friction=friction,
-            limit=limit,
-        )
-
         # 1. Initial Condition Constraints:
         initial_condition = jnp.array([
             x[0] - initial_conditions[0],
             y[0] - initial_conditions[1],
             dx[0] - initial_conditions[3],
             dy[0] - initial_conditions[4],
-            ux[0] - ux_ic,
-            uy[0] - uy_ic,
+            ux[0] - initial_conditions[6],
+            uy[0] - initial_conditions[7],
         ], dtype=float)
-
-        # # 1. Initial Condition Constraints:
-        # initial_condition = jnp.array([
-        #     x[0] - initial_conditions[0],
-        #     y[0] - initial_conditions[1],
-        #     dx[0] - initial_conditions[3],
-        #     dy[0] - initial_conditions[4],
-        # ], dtype=float)
         
         # 2. Collocation Constraints:
         ddx = (ux - friction * dx) / mass
@@ -227,14 +186,14 @@ class QuadraticProgram(LeafSystem):
 
         return equality_constraint
 
-    @staticmethod
-    @partial(jit, static_argnames=['num_states'])
-    def _inequality_constraints(q: jax.Array, state_bounds: jax.Array, num_states: int) -> jnp.ndarray:
+    @partial(jit, static_argnums=(0,), static_argnames=['num_states'])
+    def _inequality_constraints(self, q: jax.Array, state_bounds: jax.Array, num_states: int) -> jnp.ndarray:
+        print(f"COMPILED INEQUALITY CONSTRAINTS")
+
         """
         Inquality Constraints:
             1. State Bounds
         """
-        # TODO: Params passed as PyTree
 
         # Sort State Vector:
         q = q.reshape((num_states, -1))
@@ -265,9 +224,10 @@ class QuadraticProgram(LeafSystem):
 
         return bounds
 
-    @staticmethod
-    @partial(jit, static_argnames=['num_states'])
-    def _objective_function(q: jax.Array, target_position: jax.Array, w: jax.Array, num_states: int) -> jnp.ndarray:
+    @partial(jit, static_argnums=(0,), static_argnames=['num_states'])
+    def _objective_function(self, q: jax.Array, target_position: jax.Array, w: jax.Array, num_states: int) -> jnp.ndarray:
+        print(f"COMPILED OBJECTIVE FUNCTION")
+
         """
         Objective Function:
             1. State Error Objective
@@ -296,7 +256,19 @@ class QuadraticProgram(LeafSystem):
 
     def build_optimization(self, context, event):
         # Get Input Port Values and Convert to Jax Array:
-        initial_conditions = jnp.asarray(self.get_input_port(self.initial_condition_input).Eval(context))
+        initial_conditions = self.get_input_port(self.initial_condition_input).Eval(context)
+        # Convert Acceleration to Control Input:
+        initial_conditions[-3] = self.compute_control(
+            ddq=initial_conditions[-3],
+            dq=initial_conditions[3],
+            limit=self._state_bounds[2].astype(float),
+        )
+        initial_conditions[-2] = self.compute_control(
+            ddq=initial_conditions[-2],
+            dq=initial_conditions[4],
+            limit=self._state_bounds[2].astype(float),
+        )
+        initial_conditions = jnp.asarray(initial_conditions)
         target_positions = jnp.asarray(self.get_input_port(self.target_input).Eval(context))
 
         # Isolate Functions to Lambda Functions and wrap them in staticmethod:
@@ -305,35 +277,38 @@ class QuadraticProgram(LeafSystem):
             initial_conditions=ic,
             mass=self._mass,
             friction=self._friction,
-            limit=float(self._state_bounds[2]),
             dt=self._dt,
-            num_states=int(self._full_size),
+            num_states=self._full_size,
         )
 
         self.inequality_func = lambda x: self._inequality_constraints(
             q=x,
             state_bounds=self._state_bounds,
-            num_states=int(self._full_size),
+            num_states=self._full_size,
         )
 
         self.objective_func = lambda x, qd: self._objective_function(
             q=x,
             target_position=qd,
             w=self._weights,
-            num_states=int(self._full_size),
+            num_states=self._full_size,
         )
 
         # Compute A and b matricies for equality constraints:
-        A_eq = jacfwd(self.equality_func)(self._setpoint, initial_conditions)
+        self._A_eq_fn = jax.jit(jacfwd(self.equality_func))
+        A_eq = self._A_eq_fn(self._setpoint, initial_conditions)
         b_eq = -self.equality_func(self._setpoint, initial_conditions)
 
         # Compute A and b matricies for inequality constraints:
-        A_ineq = jacfwd(self.inequality_func)(self._setpoint)
+        self._A_ineq_fn = jax.jit(jacfwd(self.inequality_func))
+        A_ineq = self._A_ineq_fn(self._setpoint)
         b_ineq = -self.inequality_func(self._setpoint)
         
         # Compute H and f matrcies for objective function:
-        H = jax.hessian(self.objective_func)(self._setpoint, target_positions)
-        f = jacfwd(self.objective_func)(self._setpoint, target_positions)
+        self._H_fn = jax.jit(jacfwd(jacrev(self.objective_func)))
+        self._f_fn = jax.jit(jacfwd(self.objective_func))
+        H = self._H_fn(self._setpoint, target_positions)
+        f = self._f_fn(self._setpoint, target_positions)
 
         # Construct OSQP Problem:
         self.prog = mp.MathematicalProgram()
@@ -385,8 +360,71 @@ class QuadraticProgram(LeafSystem):
 
         # Parse Solution:
         self.parse_solution(context, event)
-    
+
+    def update_qp(self, context, event):
+        # Get Input Port Values and Convert to Jax Array:
+        initial_conditions = self.get_input_port(self.initial_condition_input).Eval(context)
+        # Convert Acceleration to Control Input:
+        initial_conditions[-3] = self.compute_control(
+            ddq=initial_conditions[-3],
+            dq=initial_conditions[3],
+            limit=self._state_bounds[2].astype(float),
+        )
+        initial_conditions[-2] = self.compute_control(
+            ddq=initial_conditions[-2],
+            dq=initial_conditions[4],
+            limit=self._state_bounds[2].astype(float),
+        )
+        initial_conditions = jnp.asarray(initial_conditions)
+        target_positions = jnp.asarray(self.get_input_port(self.target_input).Eval(context))
+
+        # Compute A and b matricies for equality constraints:
+        A_eq = self._A_eq_fn(self._setpoint, initial_conditions)
+        b_eq = -self.equality_func(self._setpoint, initial_conditions)
+
+        # Compute A and b matricies for inequality constraints:
+        A_ineq = self._A_ineq_fn(self._setpoint)
+        b_ineq = -self.inequality_func(self._setpoint)
+        
+        # Compute H and f matrcies for objective function:
+        H = self._H_fn(self._setpoint, target_positions)
+        f = self._f_fn(self._setpoint, target_positions)
+
+        # Update Constraint and Objective Function:
+        self.equality_constraint.evaluator().UpdateCoefficients(
+            new_A=A_eq, 
+            new_lb=b_eq,
+            new_ub=b_eq,
+        )
+
+        self.inequality_constraint.evaluator().UpdateCoefficients(
+            new_A=A_ineq,
+            new_lb=-b_ineq,
+            new_ub=b_ineq,
+        )
+
+        self.objective_function.evaluator().UpdateCoefficients(
+            new_Q=H,
+            new_b=f,
+        )
+
+        # Solve Updated Optimization:
+        self.solution = self.osqp.Solve(
+            self.prog,
+            self._warm_start,
+            self.solver_options,
+        )
+
+        # Parse Solution:
+        self.parse_solution(context, event)
+
     # Helper Functions:
+    def compute_control(self, ddq: float, dq: float, limit: float) -> float:
+        def convert_to_control(self, ddq: float, dq: float) -> float:
+            return (ddq * self._mass + self._friction * dq)
+        u = convert_to_control(self, ddq, dq)
+        return (u if jnp.abs(u) < limit else jnp.sign(u) * limit)
+
     def compute_acceleration(self, u: np.ndarray, dx: np.ndarray) -> np.ndarray:
         return np.asarray([(u[:] - self._friction * dx[:]) / self._mass]).flatten()
 
@@ -423,51 +461,6 @@ class QuadraticProgram(LeafSystem):
         # How can I clean this up?
         a_state = context.get_mutable_abstract_state(self.state_index)
         a_state.set_value(self._full_state_trajectory)
-
-    def update_qp(self, context, event):
-        # Get Input Port Values and Convert to Jax Array:
-        initial_conditions = jnp.asarray(self.get_input_port(self.initial_condition_input).Eval(context))
-        target_positions = jnp.asarray(self.get_input_port(self.target_input).Eval(context))
-
-        # Compute A and b matricies for equality constraints:
-        A_eq = jacfwd(self.equality_func)(self._setpoint, initial_conditions)
-        b_eq = -self.equality_func(self._setpoint, initial_conditions)
-
-        # Compute A and b matricies for inequality constraints:
-        A_ineq = jacfwd(self.inequality_func)(self._setpoint)
-        b_ineq = -self.inequality_func(self._setpoint)
-        
-        # Compute H and f matrcies for objective function:
-        H = jax.hessian(self.objective_func)(self._setpoint, target_positions)
-        f = jacfwd(self.objective_func)(self._setpoint, target_positions)
-
-        # Update Constraint and Objective Function:
-        self.equality_constraint.evaluator().UpdateCoefficients(
-            new_A=A_eq, 
-            new_lb=b_eq,
-            new_ub=b_eq,
-        )
-
-        self.inequality_constraint.evaluator().UpdateCoefficients(
-            new_A=A_ineq,
-            new_lb=-b_ineq,
-            new_ub=b_ineq,
-        )
-
-        self.objective_function.evaluator().UpdateCoefficients(
-            new_Q=H,
-            new_b=f,
-        )
-
-        # Solve Updated Optimization:
-        self.solution = self.osqp.Solve(
-            self.prog,
-            self._warm_start,
-            self.solver_options,
-        )
-
-        # Parse Solution:
-        self.parse_solution(context, event)
 
 
 # Test Instantiation:

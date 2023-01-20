@@ -11,8 +11,8 @@ import pdb
 
 # Custom LeafSystems:
 # import motion_planner
-# import motion_planner_jax as motion_planner
-import motion_planner_jax_euler as motion_planner
+import motion_planner_jax as motion_planner
+# import motion_planner_jax_euler as motion_planner
 import reference_trajectory
 import trajectory_parser
 import crazyswarm_class
@@ -92,7 +92,7 @@ simulator.set_target_realtime_rate(1.0)
 simulator.Initialize()
 
 # Simulate System:
-FINAL_TIME = 10.0
+FINAL_TIME = 20.0
 dt = 1.0 / 100.0
 next_time_step = dt
 

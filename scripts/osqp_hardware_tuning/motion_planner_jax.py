@@ -12,12 +12,10 @@ from jax import (
     jacrev
 )
 
+from pydrake.solvers import mathematicalprogram as mp
 from pydrake.common.value import Value
-from pydrake.all import (
-    MathematicalProgram,
-    SolverOptions,
-    OsqpSolver
-)
+from pydrake.solvers.osqp import OsqpSolver
+from pydrake.solvers.mathematicalprogram import SolverOptions
 from pydrake.systems.framework import (
     LeafSystem,
     PublishEvent,
@@ -50,11 +48,11 @@ class QuadraticProgram(LeafSystem):
             dtype=float,
         )
         self._state_bounds = jnp.asarray(
-            [5, 10, 0.05],
+            [5, 10, 0.1],
             dtype=float,
         )
         self._weights = jnp.asarray(
-            [1.0, 0.0],
+            [1.0, 0.5],
             dtype=float,
         )
 
@@ -126,30 +124,14 @@ class QuadraticProgram(LeafSystem):
         output_motion_plan.SetFromVector(a_value.get_mutable_value())
 
     # Jax Methods:
-    # TODO: Params -> PyTreeNode dataclass
-    # TODO: JIT Hessian Function
-
-    @staticmethod
-    @partial(jit, static_argnames=['mass', 'friction', 'limit', 'dt', 'num_states', 'num_nodes'])
-    def _equality_constraints(q: jax.Array, initial_conditions: jax.Array, mass: float, friction: float, limit: float, dt: float,  num_states: int, num_nodes: int) -> jnp.ndarray:
+    @partial(jit, static_argnums=(0,), static_argnames=['mass', 'friction', 'dt', 'num_states', 'num_nodes'])
+    def _equality_constraints(self, q: jax.Array, initial_conditions: jax.Array, mass: float, friction: float, dt: float, num_states: int, num_nodes: int) -> jnp.ndarray:
+        print(f"COMPILED EQUALITY CONSTRAINTS")
         """
         Helper Functions:
-            1. Convert Acceleration Data to Control
-            2. Hermite-Simpson Collocation
+            1. Hermite-Simpson Collocation
         """
-        # Convert Acceleration Data to Control:
-        def _compute_control(ddq: float, dq: float, mass: float, friction: float, limit: float) -> float:
-            def _convert_to_control(ddq: float, dq: float, mass: float, friction: float) -> float:
-                return (ddq * mass + friction * dq)
-            u = _convert_to_control(ddq, dq, mass, friction)
-            return jax.lax.cond(
-                jnp.abs(u) > limit, 
-                lambda x: jnp.sign(x) * limit, 
-                lambda x: x, 
-                u,
-            )
-
-        # Hermite-Simpson Collocation  :      
+        # 1. Hermite-Simpson Collocation  :      
         def _collocation_constraint(x: jax.Array, dt: float) -> jnp.ndarray:
             collocation = x[0][1:] - x[0][:-1] - (1.0 / 6.0) * dt * (x[1][:-1] + 4.0 * x[3][:] + x[1][1:])
             midpoint = x[2][:] - (1.0 / 2.0) * (x[0][:-1] + x[0][1:]) + (1.0 / 8.0) * dt * (x[1][:-1] - x[1][1:])
@@ -160,7 +142,6 @@ class QuadraticProgram(LeafSystem):
             1. Initial Condition
             2. Collocation Constraint
         """
-        # TODO: Params passed as PyTree
 
         # Sort State Vector:
         q_m = q[(num_states * num_nodes):]
@@ -184,32 +165,15 @@ class QuadraticProgram(LeafSystem):
         dy_m = q_m[3, :]
         ux_m = q_m[4, :]
         uy_m = q_m[5, :]
-
-        # Initial Conditions:
-        # Conver Acceleration to Control Input:
-        ux_ic = _compute_control(
-            ddq=initial_conditions[-3],
-            dq=initial_conditions[3],
-            mass=mass,
-            friction=friction,
-            limit=limit,
-        )
-        uy_ic = _compute_control(
-            ddq=initial_conditions[-2],
-            dq=initial_conditions[4],
-            mass=mass,
-            friction=friction,
-            limit=limit,
-        )
-
+       
         # 1. Initial Condition Constraints:
         initial_condition = jnp.array([
             x[0] - initial_conditions[0],
             y[0] - initial_conditions[1],
             dx[0] - initial_conditions[3],
             dy[0] - initial_conditions[4],
-            ux[0] - ux_ic,
-            uy[0] - uy_ic,
+            ux[0] - initial_conditions[6],
+            uy[0] - initial_conditions[7],
         ], dtype=float)
         
         # 2. Collocation Constraints:
@@ -232,14 +196,14 @@ class QuadraticProgram(LeafSystem):
 
         return equality_constraint
 
-    @staticmethod
-    @partial(jit, static_argnames=['num_states', 'num_nodes'])
-    def _inequality_constraints(q: jax.Array, state_bounds: jax.Array, num_states: int, num_nodes: int) -> jnp.ndarray:
+
+    @partial(jit, static_argnums=(0,), static_argnames=['num_states', 'num_nodes'])
+    def _inequality_constraints(self, q: jax.Array, state_bounds: jax.Array, num_states: int, num_nodes: int) -> jnp.ndarray:
+        print(f"COMPILED INEQUALITY CONSTRAINTS")
         """
         Inquality Constraints:
             1. State Bounds
         """
-        # TODO: Params passed as PyTree
 
         # Sort State Vector:
         q_m = q[(num_states * num_nodes):]
@@ -278,13 +242,22 @@ class QuadraticProgram(LeafSystem):
 
         return bounds
 
-    @staticmethod
-    @partial(jit, static_argnames=['dt', 'num_states', 'num_nodes'])
-    def _objective_function(q: jax.Array, target_position: jax.Array, w: jax.Array, dt: float, num_states: int, num_nodes: int) -> jnp.ndarray:
-        # Helper Function:
-        def error_func(x: jax.Array, target_position: jax.Array) -> jnp.ndarray:
-            return x - target_position.reshape(-1, 1)
+    @partial(jit, static_argnums=(0,), static_argnames=['dt', 'num_states', 'num_nodes'])
+    def _objective_function(self, q: jax.Array, target_position: jax.Array, w: jax.Array, dt: float, num_states: int, num_nodes: int) -> jnp.ndarray:
+        print(f"COMPILED OBJECTIVE FUNCTION")
+        """
+        Helper Functions:
+            1. Calculate Error
+            2. Hermite-Simpson Objective Function Form
+        """
 
+        # Helper Functions:
+        def _calc_error(x: jax.Array, target_position: jax.Array) -> jnp.ndarray:
+            return x - target_position
+
+        def _hermite_simpson_objective(x: jax.Array, w: float, dt: float) -> jnp.ndarray:
+            return w * (dt / 6.0) * jnp.sum(x[0][:-1] ** 2 + 4 * (x[1][:] ** 2) + x[0][1:] ** 2, axis=0)
+        
         """
         Objective Function:
             1. State Error Objective
@@ -299,27 +272,71 @@ class QuadraticProgram(LeafSystem):
         q_m = q_m.reshape((num_states, -1))
 
         # State Nodes:
-        x = q[:2, :]
-        u = q[4:6, :]
+        x = q[0, :]
+        y = q[1, :]
+        ux = q[4, :]
+        uy = q[5, :]
 
         # State Mid Points:
-        x_m = q_m[:2, :]
-        u_m = q_m[4:6, :]
+        x_m = q_m[0, :]
+        y_m = q_m[1, :]
+        ux_m = q_m[4, :]
+        uy_m = q_m[5, :]
 
-        error_i = error_func(x[:, :-1], target_position)
-        error_j = error_func(x_m[:, :], target_position)
-        error_k = error_func(x[:, 1:], target_position)
+        minimize_error_x = _hermite_simpson_objective(
+            x=[
+                _calc_error(x=x[:], target_position=target_position[0]),
+                _calc_error(x=x_m[:], target_position=target_position[0]),
+            ],
+            w=w[0],
+            dt=dt,
+        )
 
-        minimize_error = w[0] * (dt / 6.0) * jnp.sum(error_i ** 2 + 4 * (error_j ** 2) + error_k ** 2, axis=0)
+        minimize_error_y = _hermite_simpson_objective(
+            x=[
+                _calc_error(x=y[:], target_position=target_position[1]),
+                _calc_error(x=y_m[:], target_position=target_position[1]),
+            ],
+            w=w[0],
+            dt=dt,
+        )
 
-        objective_function = jnp.sum(minimize_error, axis=0)
+        minimize_effort_x = _hermite_simpson_objective(
+            x=[ux, ux_m],
+            w=w[1],
+            dt=dt,
+        )
+
+        minimize_effort_y = _hermite_simpson_objective(
+            x=[uy, uy_m],
+            w=w[1],
+            dt=dt,
+        )
+
+        minimize_error = minimize_error_x + minimize_error_y
+        minimize_effort = minimize_effort_x + minimize_effort_y
+
+        objective_function = minimize_error + minimize_effort
 
         return objective_function
 
     def build_optimization(self, context, event):
         # Get Input Port Values and Convert to Jax Array:
-        initial_conditions = jnp.asarray(self.get_input_port(self.initial_condition_input).Eval(context))
+        initial_conditions = self.get_input_port(self.initial_condition_input).Eval(context)
+        # Conver Acceleration to Control Input:
+        initial_conditions[-3] = self.compute_control(
+            ddq=initial_conditions[-3],
+            dq=initial_conditions[3],
+            limit=self._state_bounds[2].astype(float),
+        )
+        initial_conditions[-2] = self.compute_control(
+            ddq=initial_conditions[-2],
+            dq=initial_conditions[4],
+            limit=self._state_bounds[2].astype(float),
+        )
+        initial_conditions = jnp.asarray(initial_conditions)
         target_positions = jnp.asarray(self.get_input_port(self.target_input).Eval(context))
+
 
         # Isolate Functions to Lambda Functions and wrap them in staticmethod:
         self.equality_func = lambda x, ic: self._equality_constraints(
@@ -327,17 +344,16 @@ class QuadraticProgram(LeafSystem):
             initial_conditions=ic,
             mass=self._mass,
             friction=self._friction,
-            limit=float(self._state_bounds[2]),
             dt=self._dt,
-            num_states=int(self._full_size),
-            num_nodes=int(self._nodes),
+            num_states=self._full_size,
+            num_nodes=self._nodes,
         )
 
         self.inequality_func = lambda x: self._inequality_constraints(
             q=x,
             state_bounds=self._state_bounds,
-            num_states=int(self._full_size),
-            num_nodes=int(self._nodes),
+            num_states=self._full_size,
+            num_nodes=self._nodes,
         )
 
         self.objective_func = lambda x, qd: self._objective_function(
@@ -345,24 +361,28 @@ class QuadraticProgram(LeafSystem):
             target_position=qd,
             w=self._weights,
             dt=self._dt,
-            num_states=int(self._full_size),
-            num_nodes=int(self._nodes),
+            num_states=self._full_size,
+            num_nodes=self._nodes,
         )
 
         # Compute A and b matricies for equality constraints:
-        A_eq = jacfwd(self.equality_func)(self._setpoint, initial_conditions)
+        self._A_eq_fn = jax.jit(jacfwd(self.equality_func))
+        A_eq = self._A_eq_fn(self._setpoint, initial_conditions)
         b_eq = -self.equality_func(self._setpoint, initial_conditions)
 
         # Compute A and b matricies for inequality constraints:
-        A_ineq = jacfwd(self.inequality_func)(self._setpoint)
+        self._A_ineq_fn = jax.jit(jacfwd(self.inequality_func))
+        A_ineq = self._A_ineq_fn(self._setpoint)
         b_ineq = -self.inequality_func(self._setpoint)
         
         # Compute H and f matrcies for objective function:
-        H = jax.hessian(self.objective_func)(self._setpoint, target_positions)
-        f = jacfwd(self.objective_func)(self._setpoint, target_positions)
+        self._H_fn = jax.jit(jacfwd(jacrev(self.objective_func)))
+        self._f_fn = jax.jit(jacfwd(self.objective_func))
+        H = self._H_fn(self._setpoint, target_positions)
+        f = self._f_fn(self._setpoint, target_positions)
 
         # Construct OSQP Problem:
-        self.prog = MathematicalProgram()
+        self.prog = mp.MathematicalProgram()
 
         # State and Control Input Variables:
         self._opt_x = self.prog.NewContinuousVariables(self._full_size * self._nodes, "x")
@@ -399,8 +419,14 @@ class QuadraticProgram(LeafSystem):
         """OSQP:"""
         self.osqp = OsqpSolver()
         self.solver_options = SolverOptions()
+        self.solver_options.SetOption(self.osqp.solver_id(), "rho", 1e-03)
+        self.solver_options.SetOption(self.osqp.solver_id(), "eps_abs", 1e-06)
+        self.solver_options.SetOption(self.osqp.solver_id(), "eps_rel", 1e-06)
+        self.solver_options.SetOption(self.osqp.solver_id(), "eps_prim_inf", 1e-06)
+        self.solver_options.SetOption(self.osqp.solver_id(), "eps_dual_inf", 1e-06)
         self.solver_options.SetOption(self.osqp.solver_id(), "max_iter", 3000)
         self.solver_options.SetOption(self.osqp.solver_id(), "polish", True)
+        self.solver_options.SetOption(self.osqp.solver_id(), "polish_refine_iter", 10)
         self.solver_options.SetOption(self.osqp.solver_id(), "warm_start", True)
         self.solver_options.SetOption(self.osqp.solver_id(), "verbose", False)
         self.solution = self.osqp.Solve(
@@ -411,8 +437,71 @@ class QuadraticProgram(LeafSystem):
 
         # Parse Solution:
         self.parse_solution(context, event)
-    
+
+    def update_qp(self, context, event):
+        # Get Input Port Values and Convert to Jax Array:
+        initial_conditions = self.get_input_port(self.initial_condition_input).Eval(context)
+        # Conver Acceleration to Control Input:
+        initial_conditions[-3] = self.compute_control(
+            ddq=initial_conditions[-3],
+            dq=initial_conditions[3],
+            limit=self._state_bounds[2].astype(float),
+        )
+        initial_conditions[-2] = self.compute_control(
+            ddq=initial_conditions[-2],
+            dq=initial_conditions[4],
+            limit=self._state_bounds[2].astype(float),
+        )
+        initial_conditions = jnp.asarray(initial_conditions)
+        target_positions = jnp.asarray(self.get_input_port(self.target_input).Eval(context))
+
+        # Compute A and b matricies for equality constraints:
+        A_eq = self._A_eq_fn(self._setpoint, initial_conditions)
+        b_eq = -self.equality_func(self._setpoint, initial_conditions)
+
+        # Compute A and b matricies for inequality constraints:
+        A_ineq = self._A_ineq_fn(self._setpoint)
+        b_ineq = -self.inequality_func(self._setpoint)
+        
+        # Compute H and f matrcies for objective function:
+        H = self._H_fn(self._setpoint, target_positions)
+        f = self._f_fn(self._setpoint, target_positions)
+
+        # Update Constraint and Objective Function:
+        self.equality_constraint.evaluator().UpdateCoefficients(
+            new_A=A_eq, 
+            new_lb=b_eq,
+            new_ub=b_eq,
+        )
+
+        self.inequality_constraint.evaluator().UpdateCoefficients(
+            new_A=A_ineq,
+            new_lb=-b_ineq,
+            new_ub=b_ineq,
+        )
+
+        self.objective_function.evaluator().UpdateCoefficients(
+            new_Q=H,
+            new_b=f,
+        )
+
+        # Solve Updated Optimization:
+        self.solution = self.osqp.Solve(
+            self.prog,
+            self._warm_start,
+            self.solver_options,
+        )
+
+        # Parse Solution:
+        self.parse_solution(context, event)
+
     # Helper Functions:
+    def compute_control(self, ddq: float, dq: float, limit: float) -> float:
+        def convert_to_control(self, ddq: float, dq: float) -> float:
+            return (ddq * self._mass + self._friction * dq)
+        u = convert_to_control(self, ddq, dq)
+        return (u if jnp.abs(u) < limit else jnp.sign(u) * limit)
+
     def compute_acceleration(self, u: np.ndarray, dx: np.ndarray) -> np.ndarray:
         return np.asarray([(u[:] - self._friction * dx[:]) / self._mass]).flatten()
 
@@ -453,51 +542,6 @@ class QuadraticProgram(LeafSystem):
         # How can I clean this up?
         a_state = context.get_mutable_abstract_state(self.state_index)
         a_state.set_value(self._full_state_trajectory)
-
-    def update_qp(self, context, event):
-        # Get Input Port Values and Convert to Jax Array:
-        initial_conditions = jnp.asarray(self.get_input_port(self.initial_condition_input).Eval(context))
-        target_positions = jnp.asarray(self.get_input_port(self.target_input).Eval(context))
-
-        # Compute A and b matricies for equality constraints:
-        A_eq = jacfwd(self.equality_func)(self._setpoint, initial_conditions)
-        b_eq = -self.equality_func(self._setpoint, initial_conditions)
-
-        # Compute A and b matricies for inequality constraints:
-        A_ineq = jacfwd(self.inequality_func)(self._setpoint)
-        b_ineq = -self.inequality_func(self._setpoint)
-        
-        # Compute H and f matrcies for objective function:
-        H = jax.hessian(self.objective_func)(self._setpoint, target_positions)
-        f = jacfwd(self.objective_func)(self._setpoint, target_positions)
-
-        # Update Constraint and Objective Function:
-        self.equality_constraint.evaluator().UpdateCoefficients(
-            new_A=A_eq, 
-            new_lb=b_eq,
-            new_ub=b_eq,
-        )
-
-        self.inequality_constraint.evaluator().UpdateCoefficients(
-            new_A=A_ineq,
-            new_lb=-b_ineq,
-            new_ub=b_ineq,
-        )
-
-        self.objective_function.evaluator().UpdateCoefficients(
-            new_Q=H,
-            new_b=f,
-        )
-
-        # Solve Updated Optimization:
-        self.solution = self.osqp.Solve(
-            self.prog,
-            self._warm_start,
-            self.solver_options,
-        )
-
-        # Parse Solution:
-        self.parse_solution(context, event)
 
 
 # Test Instantiation:
