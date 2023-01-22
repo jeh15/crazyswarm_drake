@@ -1,12 +1,12 @@
 from functools import partial
 from typing import Callable
+
 import numpy as np
-import jax
-import jax.numpy as jnp
 import ml_collections
 
+import jax
+import jax.numpy as jnp
 from jax import (
-    grad,
     jit,
     jacfwd,
     jacrev
@@ -16,7 +16,6 @@ from pydrake.solvers import mathematicalprogram as mp
 from pydrake.common.value import Value
 from pydrake.solvers.osqp import OsqpSolver
 from pydrake.solvers.mathematicalprogram import SolverOptions
-
 from pydrake.systems.framework import (
     LeafSystem,
     PublishEvent,
@@ -25,11 +24,10 @@ from pydrake.systems.framework import (
 )
 
 import pdb
-import timeit
 
 
 class QuadraticProgram(LeafSystem):
-    def __init__(self, config: ml_collections.ConfigDict()):
+    def __init__(self: Callable, config: ml_collections.ConfigDict()):
         LeafSystem.__init__(self)
         # Class Parameters:
         self._UPDATE_RATE = config.motion_planner_rate
@@ -128,14 +126,22 @@ class QuadraticProgram(LeafSystem):
 
     # Jax Methods:
     @partial(jit, static_argnums=(0,), static_argnames=['mass', 'friction', 'dt', 'num_states'])
-    def _equality_constraints(self, q: jax.Array, initial_conditions: jax.Array, mass: float, friction: float, dt: float,  num_states: int) -> jnp.ndarray:
-        print(f"COMPILED EQUALITY CONSTRAINTS")
+    def _equality_constraints(
+        self: Callable,
+        q: jax.Array,
+        initial_conditions: jax.Array,
+        mass: float,
+        friction: float,
+        dt: float,
+        num_states: int
+    ) -> jnp.ndarray:
+
         """
         Helper Functions:
             1. Euler Collocation
         """
 
-        # Euler Collocation:      
+        # Euler Collocation:
         def _collocation_constraint(x: jax.Array, dt: float) -> jnp.ndarray:
             collocation = x[0][1:] - x[0][:-1] - x[1][:-1] * dt
             return collocation
@@ -166,7 +172,7 @@ class QuadraticProgram(LeafSystem):
             ux[0] - initial_conditions[6],
             uy[0] - initial_conditions[7],
         ], dtype=float)
-        
+
         # 2. Collocation Constraints:
         ddx = (ux - friction * dx) / mass
         ddy = (uy - friction * dy) / mass
@@ -188,8 +194,12 @@ class QuadraticProgram(LeafSystem):
         return equality_constraint
 
     @partial(jit, static_argnums=(0,), static_argnames=['num_states'])
-    def _inequality_constraints(self, q: jax.Array, state_bounds: jax.Array, num_states: int) -> jnp.ndarray:
-        print(f"COMPILED INEQUALITY CONSTRAINTS")
+    def _inequality_constraints(
+        self: Callable,
+        q: jax.Array,
+        state_bounds: jax.Array,
+        num_states: int
+    ) -> jnp.ndarray:
 
         """
         Inquality Constraints:
@@ -210,7 +220,7 @@ class QuadraticProgram(LeafSystem):
         xlim = x - state_bounds[0]
         ylim = y - state_bounds[0]
         dxlim = dx - state_bounds[1]
-        dylim = dy- state_bounds[1]
+        dylim = dy - state_bounds[1]
         uxlim = ux - state_bounds[2]
         uylim = uy - state_bounds[2]
 
@@ -226,8 +236,13 @@ class QuadraticProgram(LeafSystem):
         return bounds
 
     @partial(jit, static_argnums=(0,), static_argnames=['num_states'])
-    def _objective_function(self, q: jax.Array, target_position: jax.Array, w: jax.Array, num_states: int) -> jnp.ndarray:
-        print(f"COMPILED OBJECTIVE FUNCTION")
+    def _objective_function(
+        self: Callable,
+        q: jax.Array,
+        target_position: jax.Array,
+        w: jax.Array,
+        num_states: int
+    ) -> jnp.ndarray:
 
         """
         Objective Function:
@@ -304,7 +319,7 @@ class QuadraticProgram(LeafSystem):
         self._A_ineq_fn = jax.jit(jacfwd(self.inequality_func))
         A_ineq = self._A_ineq_fn(self._setpoint)
         b_ineq = -self.inequality_func(self._setpoint)
-        
+
         # Compute H and f matrcies for objective function:
         self._H_fn = jax.jit(jacfwd(jacrev(self.objective_func)))
         self._f_fn = jax.jit(jacfwd(self.objective_func))
@@ -386,7 +401,7 @@ class QuadraticProgram(LeafSystem):
         # Compute A and b matricies for inequality constraints:
         A_ineq = self._A_ineq_fn(self._setpoint)
         b_ineq = -self.inequality_func(self._setpoint)
-        
+
         # Compute H and f matrcies for objective function:
         H = self._H_fn(self._setpoint, target_positions)
         f = self._f_fn(self._setpoint, target_positions)
