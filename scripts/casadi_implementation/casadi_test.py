@@ -1,7 +1,4 @@
-import numpy as np
 import casadi as ca
-
-import pdb
 
 
 def equality_constraints(states, initial_conditions, friction, mass, dt):
@@ -58,9 +55,8 @@ def equality_constraints(states, initial_conditions, friction, mass, dt):
 
     return equality_constraint
 
-def main():
-    # Test CasADi Codegen:
 
+def codegen_function(argv=None):
     # Model Parameters:
     time_horizon = 1.0
     friction = 0.01
@@ -81,6 +77,31 @@ def main():
     # Calculate A and b matrices:
     A_eq = ca.jacobian(constraints, x)
     b_eq = -equality_constraints(ca.SX.zeros(x.shape), ic, friction, mass, dt)
+
+    # Autogen Function to Reproduce A_eq and b_eq:
+    input = [ic]
+
+    # Function Object Representing A_eq and b_eq:
+    A_eq_fn = ca.Function('A_eq_fn', input, [A_eq])
+    b_eq_fn = ca.Function('b_eq_fn', input, [b_eq])
+
+    # Codegen:
+    opts = dict(cpp=True)
+    A_eq_fn.generate('A_eq_fn.cc', opts)
+    b_eq_fn.generate('b_eq_fn.cc', opts)
+
+
+def run_function():
+    A_eq_fn = ca.external('A_eq_fn', './A_eq_fn.so')
+    b_eq_fn = ca.external('b_eq_fn', './b_eq_fn.so')
+    dummy_ic = [0, 1, 2, 3, 4, 5]
+    print(A_eq_fn(dummy_ic))
+    print(b_eq_fn(dummy_ic))
+
+
+def main():
+    # codegen_function()
+    run_function()
 
 
 if __name__ == "__main__":
