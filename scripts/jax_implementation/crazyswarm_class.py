@@ -1,5 +1,5 @@
 import numpy as np
-import time
+import timeit
 import ml_collections
 import rospy
 
@@ -22,7 +22,7 @@ class CrazyswarmSystem(LeafSystem):
         LeafSystem.__init__(self)
         # Parameters:
         self._CONTROL_RATE = config.crazyswarm_rate             # MATCH TRAJECTORY PARSER
-        self._RUNTIME_RATE = self._CONTROL_RATE / 2.0
+        self._RUNTIME_RATE = self._CONTROL_RATE / 5.0
         self._OUTPUT_UPDATE_RATE = config.motion_planner_rate   # MATCH MOTION PLANNER
 
         # Class Parameters:
@@ -135,10 +135,6 @@ class CrazyswarmSystem(LeafSystem):
                 [self.position, self.estimated_states],
                 axis=0,
             )
-
-            # For Debugging:
-            self.full_state_output = full_state_output
-
             # Update Abstract State:
             a_state = context.get_mutable_abstract_state(self.state_index)
             a_state.set_value(full_state_output)

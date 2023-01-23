@@ -1,18 +1,13 @@
-import numpy as np
-import ml_collections
-import matplotlib.pyplot as plt
-from matplotlib.animation import FFMpegWriter
-from matplotlib.patches import Circle
-
-from pydrake.systems.analysis import Simulator
-from pydrake.systems.framework import DiagramBuilder
-
-import pdb
-
 import argparse
 import cProfile as profile
 from contextlib import contextmanager
 import pstats
+import numpy as np
+import ml_collections
+
+
+from pydrake.systems.analysis import Simulator
+from pydrake.systems.framework import DiagramBuilder
 
 # Custom LeafSystems:
 # import motion_planner_jax as motion_planner
@@ -38,8 +33,8 @@ def use_cprofile(output_file):
 def get_config() -> ml_collections.ConfigDict():
     config = ml_collections.ConfigDict()
     # Control Rates:
-    config.motion_planner_rate = 1.0 / 50.0
-    config.reference_trajectory_rate = 1.0 / 50.0
+    config.motion_planner_rate = 1.0 / 40.0
+    config.reference_trajectory_rate = 1.0 / 40.0
     config.crazyswarm_rate = 1.0 / 100.0
     # Model Parameters:
     config.nodes = 21                   # (Discretized Points)
@@ -113,77 +108,29 @@ def main(argv=None):
 
     # Simulate System:
     FINAL_TIME = 20.0
-    dt = 1.0 / 100.0
+    dt = 1.0 / 10.0
     next_time_step = dt
 
-    with use_cprofile(args.cprofile):
-        while next_time_step <= FINAL_TIME:
-            print(f"Drake Real Time Rate: {simulator.get_actual_realtime_rate()}")
-            try:
-                simulator.AdvanceTo(next_time_step)
-                next_time_step += dt
-            except:
-                print(f"Exception Occurred...")
-                driver_crazyswarm.execute_landing_sequence()
-                break
-
+    # w/ while-loop:
     # with use_cprofile(args.cprofile):
-    #     simulator.AdvanceTo(FINAL_TIME)
-             
+    #     while next_time_step <= FINAL_TIME:
+    #         print(f"Drake Real Time Rate: {simulator.get_actual_realtime_rate()}")
+    #         try:
+    #             simulator.AdvanceTo(next_time_step)
+    #             next_time_step += dt
+    #         except:
+    #             print(f"Exception Occurred...")
+    #             driver_crazyswarm.execute_landing_sequence()
+    #             break
 
+    # w/o while-loop:
+    with use_cprofile(args.cprofile):
+        simulator.AdvanceTo(FINAL_TIME)
+             
+    print(f"Drake Real Time Rate: {simulator.get_actual_realtime_rate()}")
     # Land the Drone:
     driver_crazyswarm.execute_landing_sequence()
 
-    # # Report Average Time: Motion Planner
-    # avg_time = np.average(driver_planner.drake_time)\
-    #         +np.average(driver_planner.drake_time)\
-    #         +np.average(driver_planner.osqp_solve_time)\
-    #         +np.average(driver_planner.osqp_polish_time)
-    # pp_avg = np.average(driver_parser.pp_time)
-
-    # print(f"Average Motion Planner Time: {avg_time} s")
-    # print(f"Average PP Time: {pp_avg} s")
-    # pdb.set_trace()
-
-    # # Setup Figure: Initialize Figure / Axe Handles
-    # fig, ax = plt.subplots()
-    # p, = ax.plot([], [], color='red')
-    # ax.axis('equal')
-    # ax.set_xlim([-3, 3])  # X Lim
-    # ax.set_ylim([-3, 3])  # Y Lim
-    # ax.set_xlabel('X')  # X Label
-    # ax.set_ylabel('Y')  # Y Label
-    # ax.set_title('Parser Animation:')
-    # video_title = "simulation"
-
-    # # Initialize Patch:
-    # c = Circle((0, 0), radius=0.1, color='cornflowerblue')
-    # r = Circle((0, 0), radius=0.1, color='red')
-    # ax.add_patch(c)
-    # ax.add_patch(r)
-
-    # # Setup Animation Writer:
-    # dpi = 300
-    # FPS = 20
-    # simulation_size = len(reference_history)
-    # dt = FINAL_TIME / simulation_size
-    # sample_rate = int(1 / (dt * FPS))
-    # writerObj = FFMpegWriter(fps=FPS)
-
-    # # Plot and Create Animation:
-    # with writerObj.saving(fig, video_title+".mp4", dpi):
-    #     for i in range(0, simulation_size, sample_rate):
-    #         # Plot Reference Trajectory:
-    #         r.center = reference_history[i][0], reference_history[i][1]
-    #         # Update Patch:
-    #         position = parser_history[i]
-    #         motion_plan = np.reshape(motion_planner_history[i], (6, -1))
-    #         c.center = position[0], position[1]
-    #         p.set_data(motion_plan[0, :], motion_plan[1, :])
-    #         # Update Drawing:
-    #         fig.canvas.draw()  # Update the figure with the new changes
-    #         # Grab and Save Frame:
-    #         writerObj.grab_frame()
 
 if __name__ == "__main__":
     main()

@@ -1,5 +1,4 @@
 from functools import partial
-from typing import Callable
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -51,7 +50,7 @@ class QuadraticProgram(LeafSystem):
             dtype=float,
         )
         self._weights = jnp.asarray(
-            [1.0, 0.5],
+            [1.0, 1.0],
             dtype=float,
         )
 
@@ -125,7 +124,6 @@ class QuadraticProgram(LeafSystem):
     # Jax Methods:
     @partial(jit, static_argnums=(0,), static_argnames=['mass', 'friction', 'dt', 'num_states', 'num_nodes'])
     def _equality_constraints(self, q: jax.Array, initial_conditions: jax.Array, mass: float, friction: float, dt: float, num_states: int, num_nodes: int) -> jnp.ndarray:
-        print(f"COMPILED EQUALITY CONSTRAINTS")
         """
         Helper Functions:
             1. Hermite-Simpson Collocation
@@ -421,7 +419,7 @@ class QuadraticProgram(LeafSystem):
         self.solver_options.SetOption(self.osqp.solver_id(), "eps_dual_inf", 1e-06)
         self.solver_options.SetOption(self.osqp.solver_id(), "max_iter", 3000)
         self.solver_options.SetOption(self.osqp.solver_id(), "polish", True)
-        self.solver_options.SetOption(self.osqp.solver_id(), "polish_refine_iter", 10)
+        self.solver_options.SetOption(self.osqp.solver_id(), "polish_refine_iter", 3)
         self.solver_options.SetOption(self.osqp.solver_id(), "warm_start", True)
         self.solver_options.SetOption(self.osqp.solver_id(), "verbose", False)
         self.solution = self.osqp.Solve(

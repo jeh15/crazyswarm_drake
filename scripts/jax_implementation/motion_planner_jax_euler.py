@@ -1,5 +1,4 @@
 from functools import partial
-from typing import Callable
 
 import numpy as np
 import ml_collections
@@ -27,7 +26,7 @@ import pdb
 
 
 class QuadraticProgram(LeafSystem):
-    def __init__(self: Callable, config: ml_collections.ConfigDict()):
+    def __init__(self, config: ml_collections.ConfigDict()):
         LeafSystem.__init__(self)
         # Class Parameters:
         self._UPDATE_RATE = config.motion_planner_rate
@@ -127,7 +126,7 @@ class QuadraticProgram(LeafSystem):
     # Jax Methods:
     @partial(jit, static_argnums=(0,), static_argnames=['mass', 'friction', 'dt', 'num_states'])
     def _equality_constraints(
-        self: Callable,
+        self,
         q: jax.Array,
         initial_conditions: jax.Array,
         mass: float,
@@ -195,7 +194,7 @@ class QuadraticProgram(LeafSystem):
 
     @partial(jit, static_argnums=(0,), static_argnames=['num_states'])
     def _inequality_constraints(
-        self: Callable,
+        self,
         q: jax.Array,
         state_bounds: jax.Array,
         num_states: int
@@ -237,7 +236,7 @@ class QuadraticProgram(LeafSystem):
 
     @partial(jit, static_argnums=(0,), static_argnames=['num_states'])
     def _objective_function(
-        self: Callable,
+        self,
         q: jax.Array,
         target_position: jax.Array,
         w: jax.Array,
@@ -358,11 +357,11 @@ class QuadraticProgram(LeafSystem):
         """OSQP:"""
         self.osqp = OsqpSolver()
         self.solver_options = SolverOptions()
-        self.solver_options.SetOption(self.osqp.solver_id(), "rho", 1e-03)
-        self.solver_options.SetOption(self.osqp.solver_id(), "eps_abs", 1e-06)
-        self.solver_options.SetOption(self.osqp.solver_id(), "eps_rel", 1e-06)
-        self.solver_options.SetOption(self.osqp.solver_id(), "eps_prim_inf", 1e-06)
-        self.solver_options.SetOption(self.osqp.solver_id(), "eps_dual_inf", 1e-06)
+        self.solver_options.SetOption(self.osqp.solver_id(), "rho", 1e-02)
+        self.solver_options.SetOption(self.osqp.solver_id(), "eps_abs", 1e-03)
+        self.solver_options.SetOption(self.osqp.solver_id(), "eps_rel", 1e-03)
+        self.solver_options.SetOption(self.osqp.solver_id(), "eps_prim_inf", 1e-04)
+        self.solver_options.SetOption(self.osqp.solver_id(), "eps_dual_inf", 1e-04)
         self.solver_options.SetOption(self.osqp.solver_id(), "max_iter", 3000)
         self.solver_options.SetOption(self.osqp.solver_id(), "polish", True)
         self.solver_options.SetOption(self.osqp.solver_id(), "polish_refine_iter", 3)
