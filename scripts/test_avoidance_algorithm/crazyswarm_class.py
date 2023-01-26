@@ -173,6 +173,10 @@ class CrazyswarmSystem(LeafSystem):
         # Stop Motors:
         self.cf.cmdStop()
 
+    # Finite Differencing for Adversary States:
+    def finite_difference(self):
+        raise NotImplementedError()
+
     # Helper Function to Slow Drone Down:
     def ramp_down(self):
         def ramp_down_vector(x: np.ndarray, num_steps: int) -> np.ndarray:

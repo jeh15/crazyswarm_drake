@@ -39,12 +39,37 @@ class QuadraticProgram(LeafSystem):
         self._mass = 0.027 # Actual Crazyflie Mass
         self._friction = 0.01
         self._tol = 1e-03
+        self._time_vector = jnp.linspace(0, self._time_horizon, self._nodes)
+
+        # HARD ENCODED FUNCTION: (RISK FUNCTION TEST)
+        self.function_slope = jnp.array(
+            [
+                46.17378478, 17.63533469, 
+                10.00666623, 6.46851983,  
+                4.46500606, 3.20422986,  
+                2.3580554, 1.76546428,  
+                1.33803688, 1.02315103
+            ],
+            dtype=float,
+        )
+        self.function_intercept = jnp.array(
+            [
+                -2.81390631, -1.84359901,
+                -1.40113624, -1.11100823,
+                -0.89863577, -0.73473486, 
+                -0.604424, -0.49894278,
+                -0.41260244, -0.34143824
+            ],
+            dtype=float,
+        )
 
         # State Size for Optimization: (Seems specific to this implementation should not be a config param)
         self._state_size = self._state_dimension * 2
         self._full_size = self._state_dimension * 3
+        self._num_slack = 1
+        self._ineq_idx = self._num_slack * self._nodes + self.function_slope.shape[0] * self._nodes
         self._setpoint = jnp.zeros(
-            (self._full_size * self._nodes,),
+            ((self._full_size + self._num_slack) * self._nodes,),
             dtype=float,
         )
         self._state_bounds = jnp.asarray(
@@ -52,7 +77,7 @@ class QuadraticProgram(LeafSystem):
             dtype=float,
         )
         self._weights = jnp.asarray(
-            [1.0, 0.1],
+            [1.0, 0.1, 10.0],
             dtype=float,
         )
 
@@ -63,7 +88,7 @@ class QuadraticProgram(LeafSystem):
         )
 
         self._warm_start = np.zeros(
-            (self._full_size * self._nodes,),
+            ((self._full_size + self._num_slack) * self._nodes,),
             dtype=float,
         )
 
@@ -80,9 +105,16 @@ class QuadraticProgram(LeafSystem):
             9,
         ).get_index()
 
+        # Target Position to follow from Reference Trajectory: (x, y)
         self.target_input = self.DeclareVectorInputPort(
             "target_position",
             self._state_dimension,
+        ).get_index()
+
+        # Current Obstacle States from CrazySwarm: (x, y, z, dx, dy, dz)
+        self.obstacle_states_input = self.DeclareVectorInputPort(
+            "obstacle_states",
+            self._full_size,
         ).get_index()
 
         """ Declare Output: """
@@ -124,7 +156,7 @@ class QuadraticProgram(LeafSystem):
         output_motion_plan.SetFromVector(a_value.get_mutable_value())
 
     # Jax Methods:
-    @partial(jit, static_argnums=(0,), static_argnames=['mass', 'friction', 'dt', 'num_states'])
+    @partial(jit, static_argnums=(0,), static_argnames=['mass', 'friction', 'dt', 'num_states', 'num_slack'])
     def _equality_constraints(
         self,
         q: jax.Array,
@@ -132,7 +164,8 @@ class QuadraticProgram(LeafSystem):
         mass: float,
         friction: float,
         dt: float,
-        num_states: int
+        num_states: int,
+        num_slack: int
     ) -> jnp.ndarray:
 
         """
@@ -152,7 +185,7 @@ class QuadraticProgram(LeafSystem):
         """
 
         # Sort State Vector:
-        q = q.reshape((num_states, -1))
+        q = q.reshape((num_states + num_slack, -1))
 
         # State Nodes:
         x = q[0, :]
@@ -192,14 +225,17 @@ class QuadraticProgram(LeafSystem):
 
         return equality_constraint
 
-    @partial(jit, static_argnums=(0,), static_argnames=['num_states'])
+    @partial(jit, static_argnums=(0,), static_argnames=['num_states', 'num_slack'])
     def _inequality_constraints(
         self,
         q: jax.Array,
         obstacle_trajectory: jax.Array,
-        n: jax.Array,
+        halfspace_vector: jax.Array,
+        slope: jax.Array,
+        intercept: jax.Array,
         state_bounds: jax.Array,
-        num_states: int
+        num_states: int,
+        num_slack: int
     ) -> jnp.ndarray:
 
         """
@@ -209,12 +245,13 @@ class QuadraticProgram(LeafSystem):
         """
 
         # Sort State Vector:
-        q = q.reshape((num_states, -1))
+        q = q.reshape((num_states + num_slack, -1))
 
         # State Nodes:
         states_position = q[:2, :]
         states_velocity = q[2:4, :]
-        states_control = q[-2:, :]
+        states_control = q[4:6, :]
+        slack_variable = q[-1, :]
 
         # 1. State Bounds:
         position_bound = states_position - state_bounds[0]
@@ -223,9 +260,13 @@ class QuadraticProgram(LeafSystem):
 
         # 2. Avoidnace Constraints:
         #TODO(jeh15): Add lower-bound for linearized distance.
-        # threshold < linearized_distance < inf
         relative_distance = obstacle_trajectory - states_position
-        linearized_distance = (jnp.dot(relative_distance, n) / jnp.dot(n, n)) * jnp.linalg.norm(n)
+        linearized_distance = (jnp.einsum('ij,ij->j', relative_distance, halfspace_vector) / jnp.einsum('ij,ij->j', halfspace_vector, halfspace_vector)) * jnp.linalg.norm(halfspace_vector, axis=0)
+        # linearized_distance = (jnp.dot(relative_distance, halfspace_vector) / jnp.dot(halfspace_vector, halfspace_vector)) * jnp.linalg.norm(halfspace_vector, axis=0)
+        # rfun[i, j] = s[j] - (m[i] * x[j] + b[i])
+        rfun = (
+            -((jnp.einsum('i,j->ij', slope, linearized_distance)) + intercept.reshape(intercept.shape[0], -1)) + slack_variable
+        ).flatten()
 
         # Concatenate the constraints:
         inequality_constraints = jnp.concatenate(
@@ -233,21 +274,22 @@ class QuadraticProgram(LeafSystem):
                 position_bound,
                 velocity_bound,
                 control_bound,
-                linearized_distance,
+                slack_variable,
+                rfun,
             ],
             axis=0,
         )
 
         return inequality_constraints
 
-    @partial(jit, static_argnums=(0,), static_argnames=['avoidance_threshold', 'num_states'])
+    @partial(jit, static_argnums=(0,), static_argnames=['num_states', 'num_slack'])
     def _objective_function(
         self,
         q: jax.Array,
         target_position: jax.Array,
         w: jax.Array,
-        avoidance_threshold: float,
-        num_states: int
+        num_states: int,
+        num_slack: int
     ) -> jnp.ndarray:
 
         """
@@ -257,24 +299,24 @@ class QuadraticProgram(LeafSystem):
         """
 
         # Sort State Vector:
-        q = q.reshape((num_states, -1))
+        q = q.reshape((num_states + num_slack, -1))
 
         # State Nodes:
         x = q[0, :]
         y = q[1, :]
         ux = q[4, :]
         uy = q[5, :]
+        slack_variable = q[-1, :]
 
         error = jnp.vstack(
             [x - target_position[0], y - target_position[1]],
             dtype=float,
         )
 
-        # TODO(jeh15): Add Cost to getting to close to obstacle
-
         minimize_error = w[0] * jnp.sum(error ** 2, axis=0)
         minimize_effort = w[1] * jnp.sum(ux ** 2 + uy ** 2, axis=0)
-        objective_function = jnp.sum(minimize_error + minimize_effort, axis=0)
+        function_approximator = -w[2] * jnp.sum(slack_variable, axis=0)
+        objective_function = jnp.sum(minimize_error + minimize_effort + function_approximator, axis=0)
 
         return objective_function
 
@@ -295,6 +337,14 @@ class QuadraticProgram(LeafSystem):
         initial_conditions = jnp.asarray(initial_conditions)
         target_positions = jnp.asarray(self.get_input_port(self.target_input).Eval(context))
 
+        # Get Values for Halfspace-Constraint:
+        previous_trajectory = jnp.reshape(self._warm_start, (-1, self._nodes))[:self._state_dimension, :]
+        obstacle_states = jnp.asarray(self.get_input_port(self.obstacle_states_input).Eval(context))
+        # This needs to be generalized depending on the model dimenisions used:
+        obstacle_trajectory = jnp.einsum('i,j->ij', obstacle_states[3:5], self._time_vector) \
+            + obstacle_states[:2].reshape((2, -1))
+        halfspace_vector = obstacle_trajectory - previous_trajectory
+
         # Isolate Functions to Lambda Functions and wrap them in staticmethod:
         self.equality_func = lambda x, ic: self._equality_constraints(
             q=x,
@@ -303,12 +353,18 @@ class QuadraticProgram(LeafSystem):
             friction=self._friction,
             dt=self._dt,
             num_states=self._full_size,
+            num_slack=self._num_slack,
         )
 
-        self.inequality_func = lambda x: self._inequality_constraints(
+        self.inequality_func = lambda x, y, n, m, b: self._inequality_constraints(
             q=x,
+            obstacle_trajectory=y,
+            halfspace_vector=n,
+            slope=m,
+            intercept=b,
             state_bounds=self._state_bounds,
             num_states=self._full_size,
+            num_slack=self._num_slack,
         )
 
         self.objective_func = lambda x, qd: self._objective_function(
@@ -316,6 +372,7 @@ class QuadraticProgram(LeafSystem):
             target_position=qd,
             w=self._weights,
             num_states=self._full_size,
+            num_slack=self._num_slack,
         )
 
         # Compute A and b matricies for equality constraints:
@@ -325,8 +382,17 @@ class QuadraticProgram(LeafSystem):
 
         # Compute A and b matricies for inequality constraints:
         self._A_ineq_fn = jax.jit(jacfwd(self.inequality_func))
-        A_ineq = self._A_ineq_fn(self._setpoint)
-        b_ineq = -self.inequality_func(self._setpoint)
+        A_ineq = self._A_ineq_fn(
+            self._setpoint,
+            obstacle_trajectory,
+            halfspace_vector,
+            self.function_slope,
+            self.function_intercept
+        )
+        b_ineq_ub = -self.inequality_func(self._setpoint)
+        b_ineq_lb = np.copy(-b_ineq_ub)
+        b_ineq_lb[-self._ineq_idx:] = np.NINF
+
 
         # Compute H and f matrcies for objective function:
         self._H_fn = jax.jit(jacfwd(jacrev(self.objective_func)))
@@ -350,8 +416,8 @@ class QuadraticProgram(LeafSystem):
 
         self.inequality_constraint = self.prog.AddLinearConstraint(
             A=A_ineq,
-            lb=-b_ineq,
-            ub=b_ineq,
+            lb=b_ineq_lb,
+            ub=b_ineq_ub,
             vars=self.opt_vars,
         )
 
@@ -402,13 +468,29 @@ class QuadraticProgram(LeafSystem):
         initial_conditions = jnp.asarray(initial_conditions)
         target_positions = jnp.asarray(self.get_input_port(self.target_input).Eval(context))
 
+        # Get Values for Halfspace-Constraint:
+        previous_trajectory = jnp.reshape(self._warm_start, (-1, self._nodes))[:self._state_dimension, :]
+        obstacle_states = jnp.asarray(self.get_input_port(self.obstacle_states_input).Eval(context))
+        # This needs to be generalized depending on the model dimenisions used:
+        obstacle_trajectory = jnp.einsum('i,j->ij', obstacle_states[3:5], self._time_vector) \
+            + obstacle_states[:2].reshape((2, -1))
+        halfspace_vector = obstacle_trajectory - previous_trajectory
+
         # Compute A and b matricies for equality constraints:
         A_eq = self._A_eq_fn(self._setpoint, initial_conditions)
         b_eq = -self.equality_func(self._setpoint, initial_conditions)
 
         # Compute A and b matricies for inequality constraints:
-        A_ineq = self._A_ineq_fn(self._setpoint)
-        b_ineq = -self.inequality_func(self._setpoint)
+        A_ineq = self._A_ineq_fn(
+            self._setpoint,
+            obstacle_trajectory,
+            halfspace_vector,
+            self.function_slope,
+            self.function_intercept
+        )
+        b_ineq_ub = -self.inequality_func(self._setpoint)
+        b_ineq_lb = np.copy(-b_ineq_ub)
+        b_ineq_lb[-self._ineq_idx:] = np.NINF
 
         # Compute H and f matrcies for objective function:
         H = self._H_fn(self._setpoint, target_positions)
@@ -423,8 +505,8 @@ class QuadraticProgram(LeafSystem):
 
         self.inequality_constraint.evaluator().UpdateCoefficients(
             new_A=A_ineq,
-            new_lb=-b_ineq,
-            new_ub=b_ineq,
+            new_lb=b_ineq_lb,
+            new_ub=b_ineq_ub,
         )
 
         self.objective_function.evaluator().UpdateCoefficients(
