@@ -42,26 +42,42 @@ class QuadraticProgram(LeafSystem):
         self._time_vector = jnp.linspace(0, self._time_horizon, self._nodes)
 
         # HARD ENCODED FUNCTION: (RISK FUNCTION TEST)
+        # self.function_slope = jnp.array(
+        #     [
+        #         46.17378478, 17.63533469, 
+        #         10.00666623, 6.46851983,  
+        #         4.46500606, 3.20422986,  
+        #         2.3580554, 1.76546428,  
+        #         1.33803688, 1.02315103
+        #     ],
+        #     dtype=float,
+        # )
+        
+        # self.function_intercept = jnp.array(
+        #     [
+        #         -2.81390631, -1.84359901,
+        #         -1.40113624, -1.11100823,
+        #         -0.89863577, -0.73473486, 
+        #         -0.604424, -0.49894278,
+        #         -0.41260244, -0.34143824
+        #     ],
+        #     dtype=float,
+        # )
+
         self.function_slope = jnp.array(
             [
-                46.17378478, 17.63533469, 
-                10.00666623, 6.46851983,  
-                4.46500606, 3.20422986,  
-                2.3580554, 1.76546428,  
-                1.33803688, 1.02315103
+                22.17454184,
             ],
             dtype=float,
         )
+
         self.function_intercept = jnp.array(
             [
-                -2.81390631, -1.84359901,
-                -1.40113624, -1.11100823,
-                -0.89863577, -0.73473486, 
-                -0.604424, -0.49894278,
-                -0.41260244, -0.34143824
+                -6.92992982,
             ],
             dtype=float,
         )
+
 
         # State Size for Optimization: (Seems specific to this implementation should not be a config param)
         self._state_size = self._state_dimension * 2
@@ -73,11 +89,11 @@ class QuadraticProgram(LeafSystem):
             dtype=float,
         )
         self._state_bounds = jnp.asarray(
-            [5, 10, 0.5],
+            [5, 10, 0.1],
             dtype=float,
         )
         self._weights = jnp.asarray(
-            [1.0, 0.1, 10.0],
+            [1.0, 0.5, 1.0],
             dtype=float,
         )
 
@@ -167,7 +183,7 @@ class QuadraticProgram(LeafSystem):
         num_states: int,
         num_slack: int
     ) -> jnp.ndarray:
-
+        print(f"Equality Compiled")
         """
         Helper Functions:
             1. Euler Collocation
@@ -237,7 +253,7 @@ class QuadraticProgram(LeafSystem):
         num_states: int,
         num_slack: int
     ) -> jnp.ndarray:
-
+        print(f"Inequality Compiled")
         """
         Inquality Constraints:
             1. State Bounds
@@ -254,9 +270,9 @@ class QuadraticProgram(LeafSystem):
         slack_variable = q[-1, :]
 
         # 1. State Bounds:
-        position_bound = states_position - state_bounds[0]
-        velocity_bound = states_velocity - state_bounds[1]
-        control_bound = states_control - state_bounds[2]
+        position_bound = (states_position - state_bounds[0]).flatten()
+        velocity_bound = (states_velocity - state_bounds[1]).flatten()
+        control_bound = (states_control - state_bounds[2]).flatten()
 
         # 2. Avoidnace Constraints:
         #TODO(jeh15): Add lower-bound for linearized distance.
@@ -291,7 +307,7 @@ class QuadraticProgram(LeafSystem):
         num_states: int,
         num_slack: int
     ) -> jnp.ndarray:
-
+        print(f"Objective Compiled")
         """
         Objective Function:
             1. State Error Objective
@@ -389,7 +405,13 @@ class QuadraticProgram(LeafSystem):
             self.function_slope,
             self.function_intercept
         )
-        b_ineq_ub = -self.inequality_func(self._setpoint)
+        b_ineq_ub = -self.inequality_func(
+            self._setpoint,
+            obstacle_trajectory,
+            halfspace_vector,
+            self.function_slope,
+            self.function_intercept
+        )
         b_ineq_lb = np.copy(-b_ineq_ub)
         b_ineq_lb[-self._ineq_idx:] = np.NINF
 
@@ -404,7 +426,7 @@ class QuadraticProgram(LeafSystem):
         self.prog = mp.MathematicalProgram()
 
         # State and Control Input Variables:
-        self.opt_vars = self.prog.NewContinuousVariables(self._full_size * self._nodes, "x")
+        self.opt_vars = self.prog.NewContinuousVariables((self._full_size + self._num_slack)* self._nodes, "x")
 
         # Add Constraints and Objective Function:
         self.equality_constraint = self.prog.AddLinearConstraint(
@@ -432,14 +454,14 @@ class QuadraticProgram(LeafSystem):
         """OSQP:"""
         self.osqp = OsqpSolver()
         self.solver_options = SolverOptions()
-        self.solver_options.SetOption(self.osqp.solver_id(), "rho", 1e-02)
-        self.solver_options.SetOption(self.osqp.solver_id(), "eps_abs", 1e-03)
-        self.solver_options.SetOption(self.osqp.solver_id(), "eps_rel", 1e-03)
-        self.solver_options.SetOption(self.osqp.solver_id(), "eps_prim_inf", 1e-04)
-        self.solver_options.SetOption(self.osqp.solver_id(), "eps_dual_inf", 1e-04)
-        self.solver_options.SetOption(self.osqp.solver_id(), "max_iter", 3000)
+        self.solver_options.SetOption(self.osqp.solver_id(), "rho", 1e-03)
+        self.solver_options.SetOption(self.osqp.solver_id(), "eps_abs", 1e-06)
+        self.solver_options.SetOption(self.osqp.solver_id(), "eps_rel", 1e-06)
+        self.solver_options.SetOption(self.osqp.solver_id(), "eps_prim_inf", 1e-06)
+        self.solver_options.SetOption(self.osqp.solver_id(), "eps_dual_inf", 1e-06)
+        self.solver_options.SetOption(self.osqp.solver_id(), "max_iter", 5000)
         self.solver_options.SetOption(self.osqp.solver_id(), "polish", True)
-        self.solver_options.SetOption(self.osqp.solver_id(), "polish_refine_iter", 3)
+        self.solver_options.SetOption(self.osqp.solver_id(), "polish_refine_iter", 4)
         self.solver_options.SetOption(self.osqp.solver_id(), "warm_start", True)
         self.solver_options.SetOption(self.osqp.solver_id(), "verbose", False)
         self.solution = self.osqp.Solve(
@@ -488,7 +510,13 @@ class QuadraticProgram(LeafSystem):
             self.function_slope,
             self.function_intercept
         )
-        b_ineq_ub = -self.inequality_func(self._setpoint)
+        b_ineq_ub = -self.inequality_func(
+            self._setpoint,
+            obstacle_trajectory,
+            halfspace_vector,
+            self.function_slope,
+            self.function_intercept
+        )
         b_ineq_lb = np.copy(-b_ineq_ub)
         b_ineq_lb[-self._ineq_idx:] = np.NINF
 
@@ -541,10 +569,10 @@ class QuadraticProgram(LeafSystem):
             print(f"Objective Function Convex: {self.objective_function.evaluator().is_convex()}")
             pdb.set_trace()
 
-        x_sol = np.reshape(self.solution.GetSolution(self.opt_vars), (self._full_size, -1))
+        x_sol = np.reshape(self.solution.GetSolution(self.opt_vars), (self._full_size + self._num_slack, -1))
 
-        ddx = self.compute_acceleration(x_sol[-2, :], x_sol[2, :])
-        ddy = self.compute_acceleration(x_sol[-1, :], x_sol[3, :])
+        ddx = self.compute_acceleration(x_sol[-3, :], x_sol[2, :])
+        ddy = self.compute_acceleration(x_sol[-2, :], x_sol[3, :])
 
         self._full_state_trajectory = np.concatenate(
             [
@@ -560,6 +588,7 @@ class QuadraticProgram(LeafSystem):
                 x_sol[0, :], x_sol[1, :],
                 x_sol[2, :], x_sol[3, :],
                 x_sol[4, :], x_sol[5, :],
+                x_sol[6, :],
             ], 
             axis=0,
         )

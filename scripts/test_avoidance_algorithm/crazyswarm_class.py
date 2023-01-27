@@ -1,5 +1,4 @@
 import numpy as np
-import timeit
 import ml_collections
 import rospy
 
@@ -62,7 +61,7 @@ class CrazyswarmSystem(LeafSystem):
                 print(f"Crazyflie not connected...")
 
             # Initialize timeHelper and Target Control Rate:
-            print(f"Initializing Time Helper...")
+            print(f"Initializing Crazyflie's Time Helper...")
             self.timeHelper = self.swarm.timeHelper
             if self.timeHelper:
                 print(f"Time Helper connected...")

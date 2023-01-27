@@ -76,7 +76,8 @@ class FigureEight(LeafSystem):
     # Class Methods:
     def _figure_eight_trajectory(self, context):
         _r = 1.0
-        _time = context.get_time()
+        _factor = 2.0
+        _time = context.get_time() / _factor
         _x = _r * np.cos(_time - np.pi / 2.0)
         _y = _r / 2.0 * np.sin(2 * _time)
         return _x, _y

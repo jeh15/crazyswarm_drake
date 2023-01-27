@@ -4,13 +4,17 @@ import matplotlib.pyplot as plt
 import pdb
 
 def main() -> None:
-    resolution = 11
-    x = np.linspace(0.01, 0.25, resolution)
-    scaler = 10
-    offset = -np.log(1)
-    func = np.exp(-(scaler * x + offset))
-    log_func = np.log(1-func)
+    # resolution = 11
+    # x = np.linspace(0.01, 0.25, resolution)
+    # scaler = 10
+    # offset = -np.log(1)
+    # func = np.exp(-(scaler * x + offset))
+    # log_func = np.log(1-func)
 
+    resolution = 2
+    x = np.linspace(0.001, 0.25, resolution)
+    func = -x + 1
+    log_func = np.log(1-func)
     p_list = []
     for i in range(0, resolution-1):
         p = np.polyfit(x[i:i+2], log_func[i:i+2], 1)
