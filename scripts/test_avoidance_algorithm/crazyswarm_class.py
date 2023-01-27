@@ -114,7 +114,7 @@ class CrazyswarmSystem(LeafSystem):
                 yaw=0.0,
                 omega=np.zeros((3,), dtype=float),
             )
-            self.timeHelper.sleep(self._RUNTIME_RATE)
+            # self.timeHelper.sleep(self._RUNTIME_RATE)
 
         self.DeclarePeriodicEvent(
             period_sec=self._CONTROL_RATE,

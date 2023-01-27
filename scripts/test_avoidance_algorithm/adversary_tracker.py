@@ -28,6 +28,7 @@ class Adversary(LeafSystem):
         self._full_size = self._state_dimension * 3    # (x, y, dx, dy, ddx, ddy)
 
         # Initialize on Class Instantiation:
+        self.mc = motioncapture.connect("vicon", "192.168.1.119")
         self.swarm = Crazyswarm()
         self.timeHelper = self.swarm.timeHelper
 
@@ -94,14 +95,12 @@ class Adversary(LeafSystem):
 
     # Finite Differencing for Adversary States:
     def finite_difference(self) -> None:
-        mc = motioncapture.connect("vicon", "192.168.1.119")
-        mc.waitForNextFrame()
-        adversary = mc.rigidBodies['stick']
-        mc.waitForNextFrame()
+        self.mc.waitForNextFrame()
+        adversary = self.mc.rigidBodies['stick']
         wall_t_start = timeit.default_timer()
         initial_position = adversary.position.copy()
-        self.timeHelper.sleep(self._OUTPUT_UPDATE_RATE / 10)
-        mc.waitForNextFrame()
+        self.mc.waitForNextFrame()
+        adversary = self.mc.rigidBodies['stick']
         self.position = adversary.position.copy()
         dt = timeit.default_timer() - wall_t_start
         self.estimated_states = (self.position - initial_position) / dt
