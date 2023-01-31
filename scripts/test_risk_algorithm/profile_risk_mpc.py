@@ -1,4 +1,12 @@
 import argparse
+import cProfile as profile
+from contextlib import contextmanager
+import pstats
+import subprocess
+import signal
+import os
+import timeit
+
 import numpy as np
 import ml_collections
 
@@ -17,6 +25,43 @@ import trajectory_parser
 import crazyswarm_class
 import adversary_tracker
 
+@contextmanager
+def use_cprofile(output_file):
+    """
+    Use cprofile in specific context.
+    """
+    pr = profile.Profile()
+    pr.enable()
+    yield
+    pr.disable()
+    stats = pstats.Stats(pr)
+    stats.sort_stats("tottime", "cumtime")
+    stats.dump_stats(output_file)
+
+@contextmanager
+def use_py_spy(output_file, *, native=True, sudo=True):
+    """Use py-spy in specific context."""
+    args = [
+        "py-spy",
+        "record",
+        "-o", output_file,
+        "--pid", str(os.getpid()),
+    ]
+    if native:
+        # This will include C++ symbols as well, which will help determine if
+        # there which C++ functions may be slowing things down. However, you
+        # will need to dig or Ctrl+F to find out what Python code is going
+        # slow. Using Ctrl+F, searching for ".py:" should highlight Python
+        # code.
+        args += ["--native"]
+    if sudo:
+        args = ["sudo"] + args
+    p = subprocess.Popen(args)
+    try:
+        yield
+    finally:
+        p.send_signal(signal.SIGINT)
+        p.wait()
 
 # Convenient Data Class:
 def get_config() -> ml_collections.ConfigDict():
@@ -24,9 +69,9 @@ def get_config() -> ml_collections.ConfigDict():
     # Control Rates:
     config.motion_planner_rate = 1.0 / 50.0
     config.reference_trajectory_rate = 1.0 / 50.0
-    config.crazyswarm_rate = 1.0 / 100.0
+    config.crazyswarm_rate = 1.0 / 200.0
     # Model Parameters:
-    config.nodes = 21                   # (Discretized Points)
+    config.nodes = 51                   # (Discretized Points)
     config.control_horizon = 11         # (Node to control to) Not used
     config.state_dimension = 2          # (x, y)
     config.time_horizon = 2.0
@@ -34,6 +79,16 @@ def get_config() -> ml_collections.ConfigDict():
     return config
 
 def main(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cprofile", type=str)
+    parser.add_argument("--py_spy", type=str)
+    parser.add_argument(
+        "--py_spy_no_native",
+        dest="py_spy_native",
+        action="store_false",
+    )
+    args = parser.parse_args()
+
     # Create Config Dict:
     params = get_config()
 
@@ -100,87 +155,33 @@ def main(argv=None):
     simulator.set_target_realtime_rate(1.0)
     simulator.Initialize()
 
-    # Simulate System:
-    FINAL_TIME = 50.0
-    dt = 0.1
-    next_time_step = dt
+   # Simulate System:
+    benchmark_time = 20.0
+    wall_t_end = 1.0
 
-    # DEBUG:
-    motion_planner_history = []
-    reference_history = []
-    parser_history = []
-    adversary_history = []
-
-    # # w/ while-loop:
-    # while next_time_step <= FINAL_TIME:
-    #     print(f"Drake Real Time Rate: {simulator.get_actual_realtime_rate()}")
-    #     motion_planner_history.append(driver_planner._full_state_trajectory)
-    #     reference_history.append(driver_reference._reference_trajectory)
-    #     parser_history.append(driver_parser._current_trajectory)
-    #     adversary_history.append(driver_adversary._state_output)
-    #     try:
-    #         simulator.AdvanceTo(next_time_step)
-    #         next_time_step += dt
-    #     except:
-    #         print(f"Exception Occurred...")
-    #         driver_crazyswarm.execute_landing_sequence()
-    #         break
+    if args.py_spy is not None:
+        with use_py_spy(args.py_spy, native=args.py_spy_native):
+            wall_t_start = timeit.default_timer()
+            simulator.AdvanceTo(benchmark_time)
+            wall_t_end = timeit.default_timer() - wall_t_start
+    if args.cprofile is not None:
+        with use_cprofile(args.cprofile):
+            wall_t_start = timeit.default_timer()
+            simulator.AdvanceTo(benchmark_time)
+            wall_t_end = timeit.default_timer() - wall_t_start
+    
+    driver_crazyswarm.execute_landing_sequence()
+    
+    realtime_factor = benchmark_time / wall_t_end     
+    print(f"realtime factor: {realtime_factor:.3f}")
 
     # w/o while-loop:
-    simulator.AdvanceTo(FINAL_TIME)
-    print(f"Drake Real Time Rate: {simulator.get_actual_realtime_rate()}")
+    # simulator.AdvanceTo(FINAL_TIME)
+    # print(f"Drake Real Time Rate: {simulator.get_actual_realtime_rate()}")
 
     # Land the Drone:
-    driver_crazyswarm.execute_landing_sequence()
+    # driver_crazyswarm.execute_landing_sequence()
 
-    pdb.set_trace()
-
-    # Setup Figure: Initialize Figure / Axe Handles
-    fig, ax = plt.subplots()
-    fig.patch.set_alpha(0.0)
-    p, = ax.plot([], [], color='red')
-    ax.axis('equal')
-    ax.set_xlim([-3, 3])  # X Lim
-    ax.set_ylim([-3, 3])  # Y Lim
-    ax.set_xlabel('X')  # X Label
-    ax.set_ylabel('Y')  # Y Label
-    ax.set_title('Avoidance Animation:')
-    video_title = "simulation_2"
-
-    # Initialize Patch:
-    c = Circle((0, 0), radius=0.05, color='cornflowerblue')
-    r = Circle((0, 0), radius=0.05, color='red')
-    k = Circle((0, 0), radius=0.05, color='black')
-    ax.add_patch(c)
-    ax.add_patch(r)
-    ax.add_patch(k)
-
-    # Setup Animation Writer:
-    dpi = 300
-    FPS = 20
-    simulation_size = len(reference_history)
-    dt = FINAL_TIME / simulation_size
-    sample_rate = int(1 / (dt * FPS))
-    if sample_rate == 0:
-        sample_rate = 1
-    writerObj = FFMpegWriter(fps=FPS)
-
-    # Plot and Create Animation:
-    with writerObj.saving(fig, video_title+".mp4", dpi):
-        for i in range(0, simulation_size, sample_rate):
-            # Plot Reference Trajectory:
-            r.center = reference_history[i][0], reference_history[i][1]
-            # Plot Adversary:
-            k.center = adversary_history[i][0], adversary_history[i][1]
-            # Update Patch:
-            position = parser_history[i]
-            motion_plan = np.reshape(motion_planner_history[i], (6, -1))
-            c.center = position[0], position[1]
-            p.set_data(motion_plan[0, :], motion_plan[1, :])
-            # Update Drawing:
-            fig.canvas.draw()  # Update the figure with the new changes
-            # Grab and Save Frame:
-            writerObj.grab_frame()
 
 if __name__ == "__main__":
     main()
