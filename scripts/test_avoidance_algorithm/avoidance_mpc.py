@@ -22,8 +22,8 @@ import adversary_tracker
 def get_config() -> ml_collections.ConfigDict():
     config = ml_collections.ConfigDict()
     # Control Rates:
-    config.motion_planner_rate = 1.0 / 10.0
-    config.reference_trajectory_rate = 1.0 / 10.0
+    config.motion_planner_rate = 1.0 / 50.0
+    config.reference_trajectory_rate = 1.0 / 50.0
     config.crazyswarm_rate = 1.0 / 100.0
     # Model Parameters:
     config.nodes = 21                   # (Discretized Points)
@@ -101,7 +101,7 @@ def main(argv=None):
     simulator.Initialize()
 
     # Simulate System:
-    FINAL_TIME = 20.0
+    FINAL_TIME = 30.0
     dt = 0.1
     next_time_step = dt
 
@@ -137,6 +137,7 @@ def main(argv=None):
 
     # Setup Figure: Initialize Figure / Axe Handles
     fig, ax = plt.subplots()
+    fig.patch.set_alpha(0.0)
     p, = ax.plot([], [], color='red')
     ax.axis('equal')
     ax.set_xlim([-3, 3])  # X Lim
@@ -144,12 +145,12 @@ def main(argv=None):
     ax.set_xlabel('X')  # X Label
     ax.set_ylabel('Y')  # Y Label
     ax.set_title('Avoidance Animation:')
-    video_title = "simulation"
+    video_title = "simulation_2"
 
     # Initialize Patch:
-    c = Circle((0, 0), radius=0.1, color='cornflowerblue')
-    r = Circle((0, 0), radius=0.1, color='red')
-    k = Circle((0, 0), radius=0.1, color='black')
+    c = Circle((0, 0), radius=0.05, color='cornflowerblue')
+    r = Circle((0, 0), radius=0.05, color='red')
+    k = Circle((0, 0), radius=0.05, color='black')
     ax.add_patch(c)
     ax.add_patch(r)
     ax.add_patch(k)

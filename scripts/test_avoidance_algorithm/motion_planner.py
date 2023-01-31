@@ -454,14 +454,14 @@ class QuadraticProgram(LeafSystem):
         """OSQP:"""
         self.osqp = OsqpSolver()
         self.solver_options = SolverOptions()
-        self.solver_options.SetOption(self.osqp.solver_id(), "rho", 1e-03)
-        self.solver_options.SetOption(self.osqp.solver_id(), "eps_abs", 1e-06)
-        self.solver_options.SetOption(self.osqp.solver_id(), "eps_rel", 1e-06)
-        self.solver_options.SetOption(self.osqp.solver_id(), "eps_prim_inf", 1e-06)
-        self.solver_options.SetOption(self.osqp.solver_id(), "eps_dual_inf", 1e-06)
-        self.solver_options.SetOption(self.osqp.solver_id(), "max_iter", 5000)
+        self.solver_options.SetOption(self.osqp.solver_id(), "rho", 1e-02)
+        self.solver_options.SetOption(self.osqp.solver_id(), "eps_abs", 1e-03)
+        self.solver_options.SetOption(self.osqp.solver_id(), "eps_rel", 1e-03)
+        self.solver_options.SetOption(self.osqp.solver_id(), "eps_prim_inf", 1e-03)
+        self.solver_options.SetOption(self.osqp.solver_id(), "eps_dual_inf", 1e-03)
+        self.solver_options.SetOption(self.osqp.solver_id(), "max_iter", 8000)
         self.solver_options.SetOption(self.osqp.solver_id(), "polish", True)
-        self.solver_options.SetOption(self.osqp.solver_id(), "polish_refine_iter", 4)
+        self.solver_options.SetOption(self.osqp.solver_id(), "polish_refine_iter", 6)
         self.solver_options.SetOption(self.osqp.solver_id(), "warm_start", True)
         self.solver_options.SetOption(self.osqp.solver_id(), "verbose", False)
         self.solution = self.osqp.Solve(
@@ -530,12 +530,14 @@ class QuadraticProgram(LeafSystem):
             new_lb=b_eq,
             new_ub=b_eq,
         )
+        self.equality_constraint.evaluator().RemoveTinyCoefficient(self._tol)
 
         self.inequality_constraint.evaluator().UpdateCoefficients(
             new_A=A_ineq,
             new_lb=b_ineq_lb,
             new_ub=b_ineq_ub,
         )
+        self.inequality_constraint.evaluator().RemoveTinyCoefficient(self._tol)
 
         self.objective_function.evaluator().UpdateCoefficients(
             new_Q=H,

@@ -79,7 +79,7 @@ class Adversary(LeafSystem):
             a_state.set_value(state_output)
 
         self.DeclarePeriodicEvent(
-            period_sec=self._CONTROL_RATE,
+            period_sec=self._OUTPUT_UPDATE_RATE,
             offset_sec=0.0,
             event=PublishEvent(
                 trigger_type=TriggerType.kPeriodic,
