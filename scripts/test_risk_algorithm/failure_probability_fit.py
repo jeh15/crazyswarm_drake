@@ -1,24 +1,23 @@
 from functools import partial
 from typing import Any
 
-import numpy as np
-
 import jax
 import jax.numpy as jnp
 from jax import (
     jit,
     jacfwd,
-    jacrev
+    jacrev,
 )
 
-import pdb
 
 @partial(jit, static_argnames=['spline_resolution'])
-def _objective_function(y:jax.Array, x_data: jax.Array, y_data: jax.Array, spline_resolution: int):
-    print(f"COMPILING")
-    # Create x vector:
-    x = jnp.linspace(x_data[0], x_data[-1], spline_resolution + 1)
-
+def _objective_function(
+    y: jax.Array,
+    x: jax.Array,
+    y_data: jax.Array,
+    x_data: jax.Array,
+    spline_resolution: int,
+) -> jnp.ndarray:
     # Format the data:
     x_data = jnp.reshape(x_data, (spline_resolution, -1))
     y_data = jnp.reshape(y_data, (spline_resolution, -1))
@@ -34,12 +33,14 @@ def _objective_function(y:jax.Array, x_data: jax.Array, y_data: jax.Array, splin
 
     return objective_function
 
+
 # How do you type hint a return is a callable?
 def jit_functions(num_spline: int) -> Any:
-    objective_func = lambda y, xd, yd : _objective_function(
+    objective_func = lambda y, x, yd, xd: _objective_function(
         y=y,
-        x_data=xd,
+        x=x,
         y_data=yd,
+        x_data=xd,
         spline_resolution=num_spline,
     )
 

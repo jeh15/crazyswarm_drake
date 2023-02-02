@@ -42,29 +42,6 @@ class QuadraticProgram(LeafSystem):
         self._time_vector = jnp.linspace(0, self._time_horizon, self._nodes)
         self._solve_flag = 0
 
-        # HARD ENCODED FUNCTION: (RISK FUNCTION TEST)
-        # self.function_slope = jnp.array(
-        #     [
-        #         46.17378478, 17.63533469, 
-        #         10.00666623, 6.46851983,  
-        #         4.46500606, 3.20422986,  
-        #         2.3580554, 1.76546428,  
-        #         1.33803688, 1.02315103
-        #     ],
-        #     dtype=float,
-        # )
-        
-        # self.function_intercept = jnp.array(
-        #     [
-        #         -2.81390631, -1.84359901,
-        #         -1.40113624, -1.11100823,
-        #         -0.89863577, -0.73473486, 
-        #         -0.604424, -0.49894278,
-        #         -0.41260244, -0.34143824
-        #     ],
-        #     dtype=float,
-        # )
-
         self.function_slope = jnp.array(
             [
                 22.17454184,
@@ -78,7 +55,6 @@ class QuadraticProgram(LeafSystem):
             ],
             dtype=float,
         )
-
 
         # State Size for Optimization: (Seems specific to this implementation should not be a config param)
         self._state_size = self._state_dimension * 2
@@ -414,7 +390,6 @@ class QuadraticProgram(LeafSystem):
         )
         b_ineq_lb = np.copy(-b_ineq_ub)
         b_ineq_lb[-self._ineq_idx:] = np.NINF
-
 
         # Compute H and f matrcies for objective function:
         self._H_fn = jax.jit(jacfwd(jacrev(self.objective_func)))

@@ -1,21 +1,17 @@
 import numpy as np
 
-import jax
 import jax.numpy as jnp
-from jax import (
-    jit,
-    jacfwd,
-    jacrev
-)
 
 from pydrake.solvers import mathematicalprogram as mp
 from pydrake.solvers.osqp import OsqpSolver
 from pydrake.solvers.mathematicalprogram import SolverOptions
 
 import failure_probability_fit as fp
+import log_survival_fit as ls
 
 import matplotlib.pyplot as plt
 import pdb
+
 
 def bin_data(x, y, num_bins) -> jnp.ndarray:
     # Binning Operation
@@ -34,27 +30,30 @@ def bin_data(x, y, num_bins) -> jnp.ndarray:
 
     return binned_data
 
+
 def main():
     # Make sure Bins evenly distribute across the splines:
-    num_bins = 7
-    num_spline = 2
+    num_bins = 201
+    num_spline = 5
     num_bins = num_bins - num_bins % num_spline
 
     # Create Random X and Y Data Points and bin them:
-    size = 957
+    size = 1057
     x_data = np.random.rand(size,)
     y_data = np.random.randint(2, size=size)
     binned_data = bin_data(x_data, y_data, num_bins)
 
+    # Design Variable Vector:
+    x = jnp.linspace(binned_data[0, 0], binned_data[0, -1], num_spline+1)
     y = jnp.zeros((num_spline+1,))
 
-    H_function, f_function = fp.jit_functions(num_spline=num_spline)
+    # JIT functions for fp:
+    H_fp_function, f_fp_function = fp.jit_functions(num_spline=num_spline)
 
-    H = H_function(y, binned_data[0, :], binned_data[1, :])
-    f = f_function(y, binned_data[0, :], binned_data[1, :])
+    H_fp = H_fp_function(y, x, binned_data[1, :], binned_data[0, :])
+    f_fp = f_fp_function(y, x, binned_data[1, :], binned_data[0, :])
 
-    # Setup Optimization:
-    # Construct OSQP Problem:
+    # Setup Optimization: (FP)
     prog = mp.MathematicalProgram()
 
     # Design Variables:
@@ -70,8 +69,8 @@ def main():
     )
 
     objective_function = prog.AddQuadraticCost(
-        Q=H,
-        b=f,
+        Q=H_fp,
+        b=f_fp,
         vars=opt_vars,
     )
 
@@ -89,24 +88,72 @@ def main():
     solver_options.SetOption(osqp.solver_id(), "polish_refine_iter", 3)
     solver_options.SetOption(osqp.solver_id(), "warm_start", True)
     solver_options.SetOption(osqp.solver_id(), "verbose", False)
-    solution = osqp.Solve(
+    fp_solution = osqp.Solve(
         prog,
         y,
         solver_options,
     )
+    fp_sol = fp_solution.GetSolution(opt_vars)
 
-    print(f"Solver Status: {solution.get_solver_details().status_val}")
-    print(f"Objective Function Convex: {objective_function.evaluator().is_convex()}")
+    print(f"FP Solver Status: {fp_solution.get_solver_details().status_val}")
+    print(f"FP Objective Function Convex: {objective_function.evaluator().is_convex()}")
 
-    pdb.set_trace()
+    # JIT functions for ls:
+    A_ls_function, b_ls_function, H_ls_function, f_ls_function = ls.jit_functions()
 
-    # Setup Figure: Initialize Figure / Axe Handles
+    A_ls = A_ls_function(y, x)
+    b_ls = -b_ls_function(y, x)
+
+    ls_y = np.log(1 - fp_sol)
+    weights = jnp.ones(ls_y.shape)
+    H_ls = H_ls_function(y, ls_y, weights)
+    f_ls = f_ls_function(y, ls_y, weights)
+
+    # Setup Optimization: (LS)
+    prog = mp.MathematicalProgram()
+
+    # Design Variables:
+    opt_vars = prog.NewContinuousVariables(num_spline+1, "y")
+
+    lb = np.NINF * np.ones(opt_vars.shape)
+    ub = np.zeros(opt_vars.shape)
+
+    variable_bounds = prog.AddBoundingBoxConstraint(
+        lb,
+        ub,
+        opt_vars,
+    )
+
+    inequality_constraints = prog.AddLinearConstraint(
+        A=A_ls,
+        lb=np.NINF*np.ones(b_ls.shape),
+        ub=b_ls,
+        vars=opt_vars,
+    )
+
+    objective_function = prog.AddQuadraticCost(
+        Q=H_ls,
+        b=f_ls,
+        vars=opt_vars,
+    )
+
+    ls_solution = osqp.Solve(
+        prog,
+        y,
+        solver_options,
+    )
+    ls_sol = ls_solution.GetSolution(opt_vars)
+
+    print(f"LS Solver Status: {ls_solution.get_solver_details().status_val}")
+    print(f"LS Objective Function Convex: {objective_function.evaluator().is_convex()}")
+
+    # Setup Figure: FP
     fig, ax = plt.subplots()
-    fig.patch.set_alpha(0.0)
-    raw_plt, = ax.plot([], [], color='black', marker='.', linestyle = 'None')
-    bin_plt, = ax.plot([], [], color='red', marker='.', linestyle = 'None')
+    raw_plt, = ax.plot([], [], color='black', marker='.', linestyle='None')
+    bin_plt, = ax.plot([], [], color='red', marker='.', linestyle='None')
     fit_plt, = ax.plot([], [], color='blue')
-    ax.axis('equal')
+    ax.set_xlim([-1, 2])
+    ax.set_ylim([-1, 2])
     ax.set_xlabel('X')  # X Label
     ax.set_ylabel('Y')  # Y Label
     ax.set_title('Test Fit:')
@@ -118,10 +165,29 @@ def main():
     bin_plt.set_data(binned_data[0, :], binned_data[1, :])
 
     # Plot the Linear Spline Fit:
-    x_fit = jnp.linspace(binned_data[0, 0], binned_data[0, -1], num_spline + 1)
-    fit_plt.set_data(x_fit, solution.GetSolution(opt_vars))
-    
+    fit_plt.set_data(x, fp_sol)
+
     plt.show()
+    plt.savefig('fp_figure.png')
+
+    # Setup Figure: LS
+    fig, ax = plt.subplots()
+    data_plt, = ax.plot([], [], color='red', marker='.', linestyle='None')
+    fit_plt, = ax.plot([], [], color='blue')
+    ax.set_xlim([-1, 2])
+    ax.set_ylim([-5, 1])
+    ax.set_xlabel('X')  # X Label
+    ax.set_ylabel('Y')  # Y Label
+    ax.set_title('Test Fit:')
+
+    # Plot binned data points:
+    data_plt.set_data(x, ls_y)
+
+    # Plot the Linear Spline Fit:
+    fit_plt.set_data(x, ls_sol)
+
+    plt.show()
+    plt.savefig('ls_figure.png')
 
 
 # Test Instantiation:
