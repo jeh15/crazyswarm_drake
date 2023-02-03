@@ -76,18 +76,18 @@ def main():
 
     # Solve the program:
     """OSQP:"""
-    osqp = OsqpSolver()
+    self.osqp = OsqpSolver()
     solver_options = SolverOptions()
-    solver_options.SetOption(osqp.solver_id(), "rho", 1e-04)
-    solver_options.SetOption(osqp.solver_id(), "eps_abs", 1e-05)
-    solver_options.SetOption(osqp.solver_id(), "eps_rel", 1e-05)
-    solver_options.SetOption(osqp.solver_id(), "eps_prim_inf", 1e-05)
-    solver_options.SetOption(osqp.solver_id(), "eps_dual_inf", 1e-05)
-    solver_options.SetOption(osqp.solver_id(), "max_iter", 5000)
-    solver_options.SetOption(osqp.solver_id(), "polish", True)
-    solver_options.SetOption(osqp.solver_id(), "polish_refine_iter", 3)
-    solver_options.SetOption(osqp.solver_id(), "warm_start", True)
-    solver_options.SetOption(osqp.solver_id(), "verbose", False)
+    solver_options.SetOption(self.osqp.solver_id(), "rho", 1e-04)
+    solver_options.SetOption(self.osqp.solver_id(), "eps_abs", 1e-05)
+    solver_options.SetOption(self.osqp.solver_id(), "eps_rel", 1e-05)
+    solver_options.SetOption(self.osqp.solver_id(), "eps_prim_inf", 1e-05)
+    solver_options.SetOption(self.osqp.solver_id(), "eps_dual_inf", 1e-05)
+    solver_options.SetOption(self.osqp.solver_id(), "max_iter", 5000)
+    solver_options.SetOption(self.osqp.solver_id(), "polish", True)
+    solver_options.SetOption(self.osqp.solver_id(), "polish_refine_iter", 3)
+    solver_options.SetOption(self.osqp.solver_id(), "warm_start", True)
+    solver_options.SetOption(self.osqp.solver_id(), "verbose", False)
     fp_solution = osqp.Solve(
         prog,
         y,

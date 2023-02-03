@@ -501,7 +501,7 @@ class QuadraticProgram(LeafSystem):
 
         # Update Constraint and Objective Function:
         self.equality_constraint.evaluator().UpdateCoefficients(
-            new_A=A_eq, 
+            new_A=A_eq,
             new_lb=b_eq,
             new_ub=b_eq,
         )

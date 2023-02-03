@@ -33,11 +33,11 @@ def _objective_function(
 
 # How do you type hint a return is a callable?
 def jit_functions() -> Any:
+    # Isolate Functions with Lambda Expressions
     inequality_func = lambda y, x: _inequality_constraints(
         y=y,
         x=x,
     )
-
     objective_func = lambda y, yd, w: _objective_function(
         y=y,
         y_data=yd,
@@ -45,11 +45,12 @@ def jit_functions() -> Any:
     )
 
     # Compute A and b matrices for inequality constraints:
-    jit_A = jax.jit(jacfwd(_inequality_constraints))
+    jit_A = jax.jit(jacfwd(inequality_func))
     jit_b = inequality_func
 
     # Compute H and f matrices for objective function:
     jit_H = jax.jit(jacfwd(jacrev(objective_func)))
     jit_f = jax.jit(jacfwd(objective_func))
 
+    # Return function handles
     return jit_A, jit_b, jit_H, jit_f

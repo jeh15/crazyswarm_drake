@@ -1,5 +1,6 @@
 from functools import partial
 from typing import Any
+from types import SimpleNamespace
 
 import jax
 import jax.numpy as jnp
@@ -49,3 +50,6 @@ def jit_functions(num_spline: int) -> Any:
     jit_f = jax.jit(jacfwd(objective_func))
 
     return jit_H, jit_f
+
+# Create NameSpace Containing Functions:
+def init_failure_probability() -> None:

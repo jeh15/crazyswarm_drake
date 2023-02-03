@@ -14,7 +14,7 @@ sums, edges = jnp.histogram(
     weights=b,
 )
 counts, _ = jnp.histogram(
-    a, 
+    a,
     bins=5,
 )
 y = np.divide(sums, counts, out=np.zeros_like(sums, dtype=float), where=counts!=0)
