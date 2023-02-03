@@ -35,6 +35,7 @@ class FailureProbabilityNamespace():
         x_data: jax.Array,
         spline_resolution: int,
     ) -> jnp.ndarray:
+        print("Compiling FP Objective Function")
         # Format the data:
         x_data = jnp.reshape(x_data, (spline_resolution, -1))
         y_data = jnp.reshape(y_data, (spline_resolution, -1))

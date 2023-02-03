@@ -7,6 +7,8 @@ from pydrake.systems.framework import DiagramBuilder
 from pydrake.systems.primitives import ConstantVectorSource
 
 import matplotlib.pyplot as plt
+from matplotlib.animation import FFMpegWriter
+from matplotlib.patches import Circle
 import pdb
 
 # Custom LeafSystems:
@@ -14,9 +16,18 @@ import risk_algorithm_new as ran
 
 
 # Random Walk:
-def random_walk(current_position: np.ndarray, target_position: np.ndarray, dt: float) -> np.ndarray:
+def directed_walk(
+    current_position: np.ndarray,
+    target_position: np.ndarray, 
+    dt: float, 
+    failure_radius: float
+) -> np.ndarray:
     # Find direction to target:
     direction = target_position[:2] - current_position[:2]
+    # Check reset condition:
+    if (np.linalg.norm(direction) - failure_radius <= 0):
+        current_position = np.random.uniform(low=-1.0, high=1.0, size=(2,))
+        direction = target_position[:2] - current_position[:2]
     # Normalize direction vector:
     direction /= np.max(np.abs(direction), axis=0)
     # Create noise vector to inject into the direction:
@@ -90,9 +101,13 @@ def main(argv=None):
     simulator.Initialize()
 
     # Simulate System:
-    FINAL_TIME = 10.0
+    FINAL_TIME = 15.0
     dt = 0.1
     next_time_step = dt
+
+    fp_history = []
+    ls_history = []
+    agent_history = []
 
     while next_time_step <= FINAL_TIME:
         print(f"Drake Real Time Rate: {simulator.get_actual_realtime_rate()}")
@@ -103,17 +118,77 @@ def main(argv=None):
         adversary_context = driver_adversary.GetMyContextFromRoot(context)
         adversary_position = driver_adversary.get_source_value(adversary_context)
         # Random walk towards stationary adversary: TODO(jeh15) Add Reset Event
-        new_position = random_walk(
+        new_position = directed_walk(
             current_position=np.asarray(agent_position.value()),
             target_position=np.asarray(adversary_position.value()),
-            dt=dt
+            dt=dt,
+            failure_radius=params.failure_radius,
         )
         agent_position.set_value(new_position)
         # Increment time step:
         next_time_step += dt
+        # Save data for plotting:
+        fp_history.append(driver_risk._fp_sol)
+        ls_history.append(driver_risk._ls_sol)
+        agent_history.append(new_position)
 
-    pdb.set_trace()
+    # Plot results:
+    fig, ax = plt.subplots(3)
+    sim, = ax[0].plot([], [], color='red')
+    fp, = ax[1].plot([], [], color='red')
+    ls, = ax[2].plot([], [], color='red')
+    # Simulation Plot:
+    ax[0].axis('equal')
+    ax[0].set_xlim([-3, 3])  # X Lim
+    ax[0].set_ylim([-3, 3])  # Y Lim
+    ax[0].set_xlabel('X')  # X Label
+    ax[0].set_ylabel('Y')  # Y Label
+    # FP Plot:
+    ax[1].set_xlim([-1, 3])  # X Lim
+    ax[1].set_ylim([-1, 2])  # Y Lim
+    ax[1].set_xlabel('delta')  # X Label
+    ax[1].set_ylabel('r(delta)')  # Y Label
+    # LS Plot:
+    ax[2].set_xlim([-1, 3])  # X Lim
+    ax[2].set_ylim([-2, 1])  # Y Lim
+    ax[2].set_xlabel('delta')  # X Label
+    ax[2].set_ylabel('s(delta)')  # Y Label
 
+    # Animation
+    ax[0].set_title('Risk Learning Animation:')
+    video_title = "simulation_risk_learning"
+
+    # Initialize Patch:
+    adv = Circle((0, 0), radius=0.01, color='red')
+    agn = Circle((0, 0), radius=0.01, color='cornflowerblue')
+    rad = Circle((0, 0), radius=params.failure_radius, color='red', alpha=0.1)
+    ax[0].add_patch(adv)
+    ax[0].add_patch(agn)
+    ax[0].add_patch(rad)
+
+    # Setup Animation Writer:
+    dpi = 300
+    FPS = 20
+    simulation_size = len(fp_history)
+    dt = FINAL_TIME / simulation_size
+    sample_rate = int(1 / (dt * FPS))
+    if sample_rate == 0:
+        sample_rate = 1
+    writerObj = FFMpegWriter(fps=FPS)
+
+    # Plot and Create Animation:
+    with writerObj.saving(fig, video_title+".mp4", dpi):
+        for i in range(0, simulation_size, sample_rate):
+            # Plot Agn Trajectory:
+            agn.center = agent_history[i][0], agent_history[i][1]
+            # Plot FP:
+            fp.set_data(fp_history[i][0, :], fp_history[i][1, :])
+            # Plot LS:
+            ls.set_data(ls_history[i][0, :], ls_history[i][1, :])
+            # Update Drawing:
+            fig.canvas.draw()  # Update the figure with the new changes
+            # Grab and Save Frame:
+            writerObj.grab_frame()
 
 if __name__ == "__main__":
     main()

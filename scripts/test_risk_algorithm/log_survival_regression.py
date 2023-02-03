@@ -30,6 +30,7 @@ class LogSurvivalNamespace():
         y: jax.Array,
         x: jax.Array,
     ) -> jnp.ndarray:
+        print("Compiling LS Inequality Constraints")
         m = (y[1:] - y[:-1]) / (x[1:] - x[:-1])
         inequality_constraints = m[1:] - m[:-1]
         return inequality_constraints
@@ -41,6 +42,7 @@ class LogSurvivalNamespace():
         y_data: jax.Array,
         w: jax.Array,
     ) -> jnp.ndarray:
+        print("Compiling LS Objective Function")
         minimize_error = w * (y_data - y) ** 2
         objective_function = jnp.sum(minimize_error, axis=0)
 
@@ -71,11 +73,11 @@ class LogSurvivalNamespace():
     def configure_solver(self):
         self.osqp = OsqpSolver()
         self.solver_options = SolverOptions()
-        self.solver_options.SetOption(self.osqp.solver_id(), "rho", 1e-02)
-        self.solver_options.SetOption(self.osqp.solver_id(), "eps_abs", 1e-03)
-        self.solver_options.SetOption(self.osqp.solver_id(), "eps_rel", 1e-03)
-        self.solver_options.SetOption(self.osqp.solver_id(), "eps_prim_inf", 1e-03)
-        self.solver_options.SetOption(self.osqp.solver_id(), "eps_dual_inf", 1e-03)
+        self.solver_options.SetOption(self.osqp.solver_id(), "rho", 1e-04)
+        self.solver_options.SetOption(self.osqp.solver_id(), "eps_abs", 1e-06)
+        self.solver_options.SetOption(self.osqp.solver_id(), "eps_rel", 1e-06)
+        self.solver_options.SetOption(self.osqp.solver_id(), "eps_prim_inf", 1e-06)
+        self.solver_options.SetOption(self.osqp.solver_id(), "eps_dual_inf", 1e-06)
         self.solver_options.SetOption(self.osqp.solver_id(), "max_iter", 5000)
         self.solver_options.SetOption(self.osqp.solver_id(), "polish", True)
         self.solver_options.SetOption(self.osqp.solver_id(), "polish_refine_iter", 3)

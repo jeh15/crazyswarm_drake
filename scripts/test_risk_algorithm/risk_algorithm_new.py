@@ -1,8 +1,11 @@
+from functools import partial
+
 import numpy as np
 import ml_collections
 
 import jax
 import jax.numpy as jnp
+from jax import jit
 
 from pydrake.common.value import Value
 from pydrake.systems.framework import (
@@ -81,10 +84,14 @@ class RiskAlgorithm(LeafSystem):
             self.data = initial_data
             data = self.bin_data()
             fp_solution = self.fpn.initialize_optimization(data=data)
-            ls_solution = self.lsn.initialize_optimization(data=fp_solution)
+            log_transform = np.vstack([fp_solution[0, :], np.log(1-fp_solution[1, :])])
+            ls_solution = self.lsn.initialize_optimization(data=log_transform)
             self.constraints = self.update_constraints(data=ls_solution)
             a_state = context.get_mutable_abstract_state(self.state_index)
             a_state.set_value(self.constraints.flatten())
+            # Visibility for Debug:
+            self._fp_sol = fp_solution
+            self._ls_sol = ls_solution
 
         self.DeclareInitializationEvent(
             event=PublishEvent(
@@ -94,17 +101,19 @@ class RiskAlgorithm(LeafSystem):
             )
 
         #TODO(jeh15): Evaluate and calculate data faster than resolving QPs
-
         # Output Update Event:
         def periodic_output_event(context, event):
             current_data = self.evaluate(context)
             self.record_data(current_data)
             data = self.bin_data()
             fp_solution = self.fpn.update(data=data)
-            ls_solution = self.lsn.update(data=fp_solution)
-            self.constraints = self.update_constraints(data=ls_solution)
+            log_transform = np.vstack([fp_solution[0, :], np.log(1-fp_solution[1, :])])
+            ls_solution = self.lsn.initialize_optimization(data=log_transform)
             a_state = context.get_mutable_abstract_state(self.state_index)
             a_state.set_value(self.constraints.flatten())
+            # Visibility for Debug:
+            self._fp_sol = fp_solution
+            self._ls_sol = ls_solution
 
         self.DeclarePeriodicEvent(
             period_sec=self._OUTPUT_UPDATE_RATE,
@@ -112,8 +121,8 @@ class RiskAlgorithm(LeafSystem):
             event=PublishEvent(
                 trigger_type=TriggerType.kPeriodic,
                 callback=periodic_output_event,
-                )
             )
+        )
 
     # Output Port Callback:
     def output_callback(self, context, output):
@@ -121,15 +130,15 @@ class RiskAlgorithm(LeafSystem):
         a_value = a_state.get_mutable_value()
         output.SetFromVector(a_value.get_mutable_value())
 
-    # Evaluate Data:
-    def evaluate(self, context) -> jnp.ndarray:
-        # Get Input Port Values and Convert to Jax Array:
-        agent_states = jnp.asarray(self.get_input_port(self.agent_input).Eval(context)[:3])
-        adversary_states = jnp.asarray(self.get_input_port(self.adversary_input).Eval(context)[:3])
+    # Evaluate Data: (DO NOT USE JAX HERE)
+    def evaluate(self, context) -> np.ndarray:
+        # Get Input Port Values and Convert to Numpy Array:
+        agent_states = np.asarray(self.get_input_port(self.agent_input).Eval(context)[:3])
+        adversary_states = np.asarray(self.get_input_port(self.adversary_input).Eval(context)[:3])
 
         # Evaluate if agent has failed:
-        distance = jnp.sqrt(
-            jnp.sum((agent_states - adversary_states) ** 2, axis=0)
+        distance = np.sqrt(
+            np.sum((agent_states - adversary_states) ** 2, axis=0)
         ) - self._failure_radius
 
         # Create Data Point Pairs: 
@@ -142,23 +151,23 @@ class RiskAlgorithm(LeafSystem):
             y = 0.0
             self._failure_flag = False
 
-        return jnp.array([[x], [y]], dtype=float)
+        return np.array([[x], [y]], dtype=float)
 
-    # Record Data:
-    def record_data(self, data: jax.Array) -> None:
-        vector = jnp.append(self.data, data, axis=1)
-        indx = jnp.argsort(vector[0, :])
+    # Record Data: (DO NOT USE JAX HERE)
+    def record_data(self, data: np.ndarray) -> None:
+        vector = np.append(self.data, data, axis=1)
+        indx = np.argsort(vector[0, :])
         self.data = vector[:, indx]
 
-    # Bin Values:
-    def bin_data(self) -> jnp.ndarray:
+    # Bin Values: (DO NOT USE JAX HERE)
+    def bin_data(self) -> np.ndarray:
         # Binning Operation
-        sums, edges = jnp.histogram(
+        sums, edges = np.histogram(
             self.data[0, :],
             bins=self._bin_resolution,
             weights=self.data[1, :],
         )
-        counts, _ = jnp.histogram(
+        counts, _ = np.histogram(
             self.data[0, :],
             bins=self._bin_resolution,
         )
@@ -169,14 +178,14 @@ class RiskAlgorithm(LeafSystem):
             where=counts!=0,
         )
         x = (edges[:-1] + edges[1:]) / 2
-        binned_data = jnp.vstack([x, y])
+        binned_data = np.vstack([x, y])
 
         return binned_data
 
-    # Construct Risk Constraint:
-    def update_constraints(self, data: jax.Array) -> jnp.ndarray:
+    # Construct Risk Constraint: (Negligible Speed Increase from JIT)
+    def update_constraints(self, data: np.ndarray) -> np.ndarray:
         poly_coefficients = []
         for i in range(0, self._spline_resolution):
             p = np.polyfit(data[0, i:i+2], data[1, i:i+2], 1)
             poly_coefficients.append(p)
-        return jnp.asarray(poly_coefficients)
+        return np.asarray(poly_coefficients)
