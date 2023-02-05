@@ -14,7 +14,10 @@ from pydrake.solvers import mathematicalprogram as mp
 from pydrake.solvers.osqp import OsqpSolver
 from pydrake.solvers.mathematicalprogram import SolverOptions
 
+import pdb
 
+
+# Container for Log Survival Regression functions:
 class LogSurvivalNamespace():
     def __init__(self, spline_resolution: int):
         self.spline_resolution = spline_resolution
@@ -30,7 +33,6 @@ class LogSurvivalNamespace():
         y: jax.Array,
         x: jax.Array,
     ) -> jnp.ndarray:
-        print("Compiling LS Inequality Constraints")
         m = (y[1:] - y[:-1]) / (x[1:] - x[:-1])
         inequality_constraints = m[1:] - m[:-1]
         return inequality_constraints
@@ -42,7 +44,6 @@ class LogSurvivalNamespace():
         y_data: jax.Array,
         w: jax.Array,
     ) -> jnp.ndarray:
-        print("Compiling LS Objective Function")
         minimize_error = w * (y_data - y) ** 2
         objective_function = jnp.sum(minimize_error, axis=0)
 

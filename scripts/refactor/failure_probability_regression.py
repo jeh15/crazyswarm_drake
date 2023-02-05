@@ -23,6 +23,7 @@ class FailureProbabilityNamespace():
         self.spline_resolution = spline_resolution
         self.design_variables = jnp.zeros((spline_resolution+1,))
         self.warmstart = np.zeros((spline_resolution+1,))
+        self._ub_tol = 0.99
         self.jit_functions(spline_resolution=spline_resolution)
 
     # JAX Methods:
@@ -35,7 +36,6 @@ class FailureProbabilityNamespace():
         x_data: jax.Array,
         spline_resolution: int,
     ) -> jnp.ndarray:
-        print("Compiling FP Objective Function")
         # Format the data:
         x_data = jnp.reshape(x_data, (spline_resolution, -1))
         y_data = jnp.reshape(y_data, (spline_resolution, -1))
@@ -105,7 +105,7 @@ class FailureProbabilityNamespace():
         # Add Design Variable Bounds:
         self.prog.AddBoundingBoxConstraint(
             np.zeros(self.opt_vars.shape),
-            np.ones(self.opt_vars.shape),
+            self._ub_tol * np.ones(self.opt_vars.shape),
             self.opt_vars,
         )
 

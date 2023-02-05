@@ -36,31 +36,20 @@ class QuadraticProgram(LeafSystem):
         self._time_horizon = config.time_horizon
         self._state_dimension = config.state_dimension
         self._dt = config.dt
+        self._time_vector = np.linspace(0, self._time_horizon, self._nodes)
+        self._spline_resolution = config.spline_resolution
+        
+        # Constants 
         self._mass = 0.027 # Actual Crazyflie Mass
         self._friction = 0.01
         self._tol = 1e-03
-        self._time_vector = np.linspace(0, self._time_horizon, self._nodes)
         self._solve_flag = 0
-
-        self.function_slope = np.array(
-            [
-                22.17454184,
-            ],
-            dtype=float,
-        )
-
-        self.function_intercept = np.array(
-            [
-                -6.92992982,
-            ],
-            dtype=float,
-        )
 
         # State Size for Optimization: (Seems specific to this implementation should not be a config param)
         self._state_size = self._state_dimension * 2
         self._full_size = self._state_dimension * 3
         self._num_slack = 1
-        self._ineq_idx = self._num_slack * self._nodes + self.function_slope.shape[0] * self._nodes
+        self._ineq_idx = self._num_slack * self._nodes + self._spline_resolution * self._nodes
         self._setpoint = jnp.zeros(
             ((self._full_size + self._num_slack) * self._nodes,),
             dtype=float,
@@ -108,6 +97,12 @@ class QuadraticProgram(LeafSystem):
         self.obstacle_states_input = self.DeclareVectorInputPort(
             "obstacle_states",
             self._full_size,
+        ).get_index()
+
+        # Updated Constraints from Learning Framework: (slope, intercept)
+        self.constraint_input = self.DeclareVectorInputPort(
+            "risk_constraints",
+            self._spline_resolution * 2,
         ).get_index()
 
         """ Declare Output: """
@@ -252,7 +247,6 @@ class QuadraticProgram(LeafSystem):
         control_bound = (states_control - state_bounds[2]).flatten()
 
         # 2. Avoidnace Constraints:
-        #TODO(jeh15): Add lower-bound for linearized distance.
         relative_distance = obstacle_trajectory - states_position
         linearized_distance = (jnp.einsum('ij,ij->j', relative_distance, halfspace_vector) / jnp.einsum('ij,ij->j', halfspace_vector, halfspace_vector)) * jnp.linalg.norm(halfspace_vector, axis=0)
         # rfun[i, j] = s[j] - (m[i] * x[j] + b[i])
@@ -307,8 +301,8 @@ class QuadraticProgram(LeafSystem):
 
         minimize_error = w[0] * jnp.sum(error ** 2, axis=0)
         minimize_effort = w[1] * jnp.sum(ux ** 2 + uy ** 2, axis=0)
-        function_approximator = -w[2] * jnp.sum(slack_variable, axis=0)
-        objective_function = jnp.sum(minimize_error + minimize_effort + function_approximator, axis=0)
+        minimize_failure = -w[2] * jnp.sum(slack_variable, axis=0)
+        objective_function = jnp.sum(minimize_error + minimize_effort + minimize_failure, axis=0)
 
         return objective_function
 
@@ -328,6 +322,11 @@ class QuadraticProgram(LeafSystem):
         )
         initial_conditions = np.asarray(initial_conditions)
         target_positions = np.asarray(self.get_input_port(self.target_input).Eval(context))
+
+        # Update Risk Constraints:
+        risk_constraints = np.asarray(
+            self.get_input_port(self.constraint_input).Eval(context)
+        ).reshape((self._spline_resolution, -1))
 
         # Get Values for Halfspace-Constraint:
         previous_trajectory = np.reshape(self._warm_start, (-1, self._nodes))[:self._state_dimension, :]
@@ -378,16 +377,17 @@ class QuadraticProgram(LeafSystem):
             self._setpoint,
             obstacle_trajectory,
             halfspace_vector,
-            self.function_slope,
-            self.function_intercept
+            risk_constraints[:, 0],
+            risk_constraints[:, 1],
         )
         b_ineq_ub = -self.inequality_func(
             self._setpoint,
             obstacle_trajectory,
             halfspace_vector,
-            self.function_slope,
-            self.function_intercept
+            risk_constraints[:, 0],
+            risk_constraints[:, 1],
         )
+
         b_ineq_lb = np.copy(-b_ineq_ub)
         b_ineq_lb[-self._ineq_idx:] = np.NINF
 
@@ -465,6 +465,11 @@ class QuadraticProgram(LeafSystem):
         initial_conditions = np.asarray(initial_conditions)
         target_positions = np.asarray(self.get_input_port(self.target_input).Eval(context))
 
+        # Update Risk Constraints:
+        risk_constraints = np.asarray(
+            self.get_input_port(self.constraint_input).Eval(context)
+        ).reshape((self._spline_resolution, -1))
+
         # Get Values for Halfspace-Constraint:
         previous_trajectory = np.reshape(self._warm_start, (-1, self._nodes))[:self._state_dimension, :]
         obstacle_states = np.asarray(self.get_input_port(self.obstacle_states_input).Eval(context))
@@ -482,15 +487,15 @@ class QuadraticProgram(LeafSystem):
             self._setpoint,
             obstacle_trajectory,
             halfspace_vector,
-            self.function_slope,
-            self.function_intercept
+            risk_constraints[:, 0],
+            risk_constraints[:, 1],
         )
         b_ineq_ub = -self.inequality_func(
             self._setpoint,
             obstacle_trajectory,
             halfspace_vector,
-            self.function_slope,
-            self.function_intercept
+            risk_constraints[:, 0],
+            risk_constraints[:, 1],
         )
         b_ineq_lb = np.copy(-b_ineq_ub)
         b_ineq_lb[-self._ineq_idx:] = np.NINF
@@ -525,21 +530,6 @@ class QuadraticProgram(LeafSystem):
             self._warm_start,
             self.solver_options,
         )
-
-        if not self.solution.is_success():
-            self._warm_start = np.zeros(
-                ((self._full_size + self._num_slack) * self._nodes,),
-                dtype=float,
-            )
-            self.solver_options.SetOption(self.osqp.solver_id(), "warm_start", False)
-            while not self.solution.is_success():
-                self.solution = self.osqp.Solve(
-                    self.prog,
-                    self._warm_start,
-                    self.solver_options,
-                )
-                if self.solution.is_success():
-                    self.solver_options.SetOption(self.osqp.solver_id(), "warm_start", True)
 
         # Parse Solution:
         self.parse_solution(context, event)

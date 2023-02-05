@@ -1,4 +1,4 @@
-from functools import partialfp
+from functools import partial
 
 import numpy as np
 import ml_collections
@@ -88,6 +88,7 @@ class RiskLearning(LeafSystem):
             # Visibility for Debug:
             self._fp_sol = fp_solution
             self._ls_sol = ls_solution
+            self._data = data
 
         self.DeclareInitializationEvent(
             event=PublishEvent(
@@ -105,11 +106,13 @@ class RiskLearning(LeafSystem):
             fp_solution = self.fpn.update(data=data)
             log_transform = np.vstack([fp_solution[0, :], np.log(1-fp_solution[1, :])])
             ls_solution = self.lsn.initialize_optimization(data=log_transform)
+            self.constraints = self.update_constraints(data=ls_solution)
             a_state = context.get_mutable_abstract_state(self.state_index)
             a_state.set_value(self.constraints.flatten())
             # Visibility for Debug:
             self._fp_sol = fp_solution
             self._ls_sol = ls_solution
+            self._data = data
 
         self.DeclarePeriodicEvent(
             period_sec=self._OUTPUT_UPDATE_RATE,
@@ -135,10 +138,11 @@ class RiskLearning(LeafSystem):
         # Evaluate if agent has failed:
         distance = np.sqrt(
             np.sum((agent_states - adversary_states) ** 2, axis=0)
-        ) - self._failure_radius
+        )
+        eval_distance = distance - self._failure_radius
 
         # Create Data Point Pairs:
-        if distance <= 0:
+        if eval_distance <= 0:
             x = distance
             y = 1.0
             self._failure_flag = True
