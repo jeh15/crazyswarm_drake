@@ -11,7 +11,7 @@ from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import DiagramBuilder
 
 # Custom LeafSystems:
-import motion_planner_module as motion_planner
+import motion_planner_module_gurobi as motion_planner
 import reference_trajectory_module as reference_trajectory
 import trajectory_parser_module as trajectory_parser
 import crazyswarm_module as crazyswarm_controller
@@ -141,6 +141,7 @@ def main(argv=None):
     fp_history = []
     ls_history = []
     data_history = []
+    solve_time = []
 
     # w/ while-loop:
     while next_time_step <= FINAL_TIME:
@@ -152,6 +153,7 @@ def main(argv=None):
         fp_history.append(driver_regression._fp_sol)
         ls_history.append(driver_regression._ls_sol)
         data_history.append(driver_regression._data)
+        solve_time.append(driver_planner._optimizer_time)
         try:
             simulator.AdvanceTo(next_time_step)
             next_time_step += dt
@@ -166,6 +168,9 @@ def main(argv=None):
 
     # Land the Drone:
     driver_crazyswarm.execute_landing_sequence()
+
+    avg_solve_time = np.mean(np.asarray(solve_time))
+    print(f"Average Solve Time: {avg_solve_time}")    
 
     # Helper function to show reference trajectory:
     def figure_eight_trajectory():
