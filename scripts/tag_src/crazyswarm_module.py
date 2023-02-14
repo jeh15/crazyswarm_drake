@@ -21,8 +21,6 @@ class CrazyswarmSystem(LeafSystem):
         LeafSystem.__init__(self)
         # Parameters:
         self._CONTROL_RATE = config.crazyswarm_rate             # MATCH TRAJECTORY PARSER
-        self._RUNTIME_RATE = self._CONTROL_RATE / 5.0
-        self._OUTPUT_UPDATE_RATE = config.motion_planner_rate   # MATCH MOTION PLANNER
 
         # Class Parameters:
         self._state_dimension = config.state_dimension
@@ -89,7 +87,6 @@ class CrazyswarmSystem(LeafSystem):
                 yaw=0.0,
                 omega=np.zeros((3,), dtype=float),
             )
-            # self.timeHelper.sleep(self._RUNTIME_RATE)
 
         self.DeclarePeriodicEvent(
             period_sec=self._CONTROL_RATE,
@@ -146,10 +143,6 @@ class CrazyswarmSystem(LeafSystem):
         self.timeHelper.sleep(3.0)
         # Stop Motors:
         self.cf.cmdStop()
-
-    # Finite Differencing for Adversary States:
-    def finite_difference(self):
-        raise NotImplementedError()
 
     # Helper Function to Slow Drone Down:
     def ramp_down(self):

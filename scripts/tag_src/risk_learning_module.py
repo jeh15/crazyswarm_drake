@@ -22,6 +22,7 @@ class RiskLearning(LeafSystem):
     def __init__(self, config: ml_collections.ConfigDict()):
         LeafSystem.__init__(self)
         # Parameters:
+        self._UPDATE_RATE = config.crazyswarm_rate
         self._OUTPUT_UPDATE_RATE = config.motion_planner_rate
         self._spline_resolution = config.spline_resolution
         self._bin_resolution = config.bin_resolution
@@ -97,7 +98,20 @@ class RiskLearning(LeafSystem):
                 )
             )
 
-        # TODO(jeh15): Evaluate and calculate data faster than resolving QPs
+        # Record Data at Control Rate:
+        def periodic_update_event(context, event):
+            current_data = self.evaluate(context)
+            self.record_data(current_data)
+
+        self.DeclarePeriodicEvent(
+            period_sec=self._UPDATE_RATE,
+            offset_sec=0.0,
+            event=PublishEvent(
+                trigger_type=TriggerType.kPeriodic,
+                callback=periodic_update_event,
+            )
+        )
+
         # Output Update Event:
         def periodic_output_event(context, event):
             current_data = self.evaluate(context)
@@ -132,13 +146,18 @@ class RiskLearning(LeafSystem):
     # Evaluate Data:
     def evaluate(self, context) -> np.ndarray:
         # Get Input Port Values and Convert to Numpy Array:
-        agent_states = np.asarray(self.get_input_port(self.agent_input).Eval(context)[:3])
-        adversary_states = np.asarray(self.get_input_port(self.adversary_input).Eval(context)[:3])
+        agent_states = np.asarray(self.get_input_port(self.agent_input).Eval(context)[:2])
+        adversary_states = np.asarray(self.get_input_port(self.adversary_input).Eval(context)[:2])
 
-        # Evaluate if agent has failed:
-        distance = np.sqrt(
-            np.sum((agent_states - adversary_states) ** 2, axis=0)
-        )
+        # 3D Euclidean Distance:
+        # agent_states = np.asarray(self.get_input_port(self.agent_input).Eval(context)[:3])
+        # adversary_states = np.asarray(self.get_input_port(self.adversary_input).Eval(context)[:3])
+        # distance = np.sqrt(
+        #     np.sum((agent_states - adversary_states) ** 2, axis=0)
+        # )
+
+        # 2D Euclidean Distance:
+        distance = np.linalg.norm((agent_states - adversary_states))
         eval_distance = distance - self._failure_radius
 
         # Create Data Point Pairs:

@@ -138,7 +138,7 @@ def main(argv=None):
     simulator = Simulator(diagram, context)
     simulator.set_target_realtime_rate(1.0)
 
-    # Initialize Crazyswarm:
+    # Initialize Crazyswarm Objects:
     driver_crazyswarm.initialize_driver()
     driver_adversary.initialize_driver()
 
@@ -155,6 +155,7 @@ def main(argv=None):
     reference_history = []
     parser_history = []
     adversary_history = []
+    adversary_target_history = []
     fp_history = []
     ls_history = []
     data_history = []
@@ -167,6 +168,7 @@ def main(argv=None):
         reference_history.append(driver_reference._reference_trajectory)
         parser_history.append(driver_parser._current_trajectory)
         adversary_history.append(driver_adversary._state_output)
+        adversary_target_history.append(driver_adversary._state_output)
         fp_history.append(driver_regression._fp_sol)
         ls_history.append(driver_regression._ls_sol)
         data_history.append(driver_regression._data)
@@ -179,31 +181,12 @@ def main(argv=None):
             driver_crazyswarm.execute_landing_sequence()
             break
 
-    # w/o while-loop:
-    # simulator.AdvanceTo(FINAL_TIME)
-    # print(f"Drake Real Time Rate: {simulator.get_actual_realtime_rate()}")
-
     # Land the Drone:
     driver_crazyswarm.execute_landing_sequence()
-    
-    # # Store Data in Dict:
-    # data_dict = {
-    #     'motion_planner': motion_planner_history,
-    #     'crazyfly_states': parser_history,
-    #     'target_position': reference_history,
-    #     'adversary_states': adversary_history,
-    #     'failure_probability': fp_history,
-    #     'log_survival': ls_history,
-    #     'raw_data': data_history,
-    # }
-    # save_data.save_to_csv(data_dict)
-
-    # avg_solve_time = np.mean(np.asarray(solve_time))
-    # print(f"Average Solve Time: {avg_solve_time}")    
 
     # Helper function to show reference trajectory:
     def figure_eight_trajectory():
-        _r = 1.0
+        _r = 0.5
         _time = np.linspace(0, 2 * np.pi)
         _x = _r * np.cos(_time - np.pi / 2.0)
         _y = _r / 2.0 * np.sin(2 * _time)
@@ -241,9 +224,11 @@ def main(argv=None):
     # Initialize Patches and Plots:
     ref = Circle((0, 0), radius=0.05, color='black')
     adv = Circle((0, 0), radius=0.01, color='red')
+    adv_target = Circle((0, 0), radius=0.05, color='red', alpha=0.25)
     agn = Circle((0, 0), radius=0.01, color='cornflowerblue')
     rad = Circle((0, 0), radius=params.failure_radius, color='red', alpha=0.1)
     ax[0].add_patch(adv)
+    ax[0].add_patch(adv_target)
     ax[0].add_patch(agn)
     ax[0].add_patch(rad)
 
@@ -268,6 +253,7 @@ def main(argv=None):
             # Plot Adversary:
             adv.center = adversary_history[i][0], adversary_history[i][1]
             rad.center = adversary_history[i][0], adversary_history[i][1]
+            adv_target.center = adversary_target_history[i][0], adversary_target_history[i][1]
             # Plot Agent and Motion Planner Trajectory:
             position = parser_history[i]
             motion_plan = np.reshape(motion_planner_history[i], (6, -1))

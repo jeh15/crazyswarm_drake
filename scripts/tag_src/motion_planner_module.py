@@ -44,7 +44,8 @@ class QuadraticProgram(LeafSystem):
         self._friction = 0.01
         self._tol = 1e-03
         self._solve_flag = 0
-        self._area_limit = jnp.array([1.0, 1.0], dtype=float)
+        self._area_limit = jnp.array([0.75, 0.75], dtype=float)
+        # self._area_limit = jnp.array([1.0, 1.0], dtype=float)
 
         # State Size for Optimization: (Seems specific to this implementation should not be a config param)
         self._state_size = self._state_dimension * 2
@@ -57,10 +58,16 @@ class QuadraticProgram(LeafSystem):
             ((self._full_size + self._num_slack) * self._nodes,),
             dtype=float,
         )
+
         self._state_bounds = jnp.asarray(
-            [5, 10, 0.1],
+            [1.5, 2, 0.1],
             dtype=float,
         )
+
+        # self._state_bounds = jnp.asarray(
+        #     [5, 10, 0.1],
+        #     dtype=float,
+        # )
         self.opt_var_lb = np.concatenate(
             [
                 -self._state_bounds[0] * np.ones(self._state_dimension * self._nodes,),
@@ -82,7 +89,7 @@ class QuadraticProgram(LeafSystem):
             axis=0,
         )
         self._weights = jnp.asarray(
-            [1.0, 1.5, 3.0, 1.0],
+            [1.0, 1.5, 5.0, 1.0],
             dtype=float,
         )
 

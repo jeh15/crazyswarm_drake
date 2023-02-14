@@ -22,19 +22,23 @@ class Adversary(LeafSystem):
         LeafSystem.__init__(self)
         # Parameters:
         self._CONTROL_RATE = config.adversary_rate
-        self._OUTPUT_UPDATE_RATE = config.motion_planner_rate   # MATCH MOTION PLANNER
 
         # Class Parameters:
         self._state_dimension = config.state_dimension
         self._full_size = self._state_dimension * 3    # (x, y, dx, dy, ddx, ddy)
 
+        # Debug Variables:
+        self._target_position = np.zeros((3,), dtype=float)
+
         # PID Controller:
-        self.saturation_limit = 2.5
-        self._safety_offset = 0.1
+        self.saturation_limit = 2.0
+        self.velocity_limit = 1.0
+        self._safety_offset = 0.05
         self._error_previous = 0.0
         self._error = np.zeros((3,), dtype=float)
         self._error_derivative = np.zeros((3,), dtype=float)
-        self._P = 5.0
+        
+        self._P = 20.0
         self._D = 5.0
 
         # Initialize Values:
@@ -69,8 +73,8 @@ class Adversary(LeafSystem):
             event=PublishEvent(
                 trigger_type=TriggerType.kInitialization,
                 callback=on_initialize,
-                )
             )
+        )
 
         # Periodic Update Event:
         def periodic_update_event(context, event):
@@ -88,14 +92,15 @@ class Adversary(LeafSystem):
         # Output Update Event:
         def periodic_output_event(context, event):
             # Get Position and Estimated States:
-            position, velocity = self.finite_difference()
+            position = copy.deepcopy(self.cf.position())
+            velocity = copy.deepcopy(self.velocity)
             state_output = np.concatenate([position, velocity], axis=0)
             self._state_output = state_output
             a_state = context.get_mutable_abstract_state(self.state_index)
             a_state.set_value(state_output)
 
         self.DeclarePeriodicEvent(
-            period_sec=self._OUTPUT_UPDATE_RATE,
+            period_sec=self._CONTROL_RATE,
             offset_sec=0.0,
             event=PublishEvent(
                 trigger_type=TriggerType.kPeriodic,
@@ -109,16 +114,6 @@ class Adversary(LeafSystem):
         a_value = a_state.get_mutable_value()
         output.SetFromVector(a_value.get_mutable_value())
 
-    # Finite Differencing for Adversary States:
-    def finite_difference(self) -> None:
-        wall_t_start = timeit.default_timer()
-        initial_position = copy.deepcopy(self.cf.position())
-        self.timeHelper.sleep(self._CONTROL_RATE / 2)
-        position = copy.deepcopy(self.cf.position())
-        dt = timeit.default_timer() - wall_t_start
-        velocity = (position - initial_position) / dt
-        return position, velocity
-
     def pd_control(self, context) -> None:
         # Get target position from input:
         target_position = np.asarray((self.get_input_port(0).Eval(context))[:3])
@@ -131,6 +126,9 @@ class Adversary(LeafSystem):
         position[-1] = self.target_height
         velocity[-1] = 0.0
         target_position[-1] = self.target_height
+
+        # For debugging:
+        self._target_position = target_position
 
         # Calculate error vector:
         position_vector = target_position - position
@@ -156,8 +154,15 @@ class Adversary(LeafSystem):
 
         # Predict position and velocity states:
         velocity_prediction = velocity + control_input * self._CONTROL_RATE
+        
+        # Saturate Velocity Prediction:
+        for i in range(velocity_prediction.shape[0]):
+            if np.abs(velocity_prediction[i]) > self.velocity_limit:
+                velocity_prediction[i] = np.sign(velocity_prediction[i]) * self.velocity_limit
+
         position_prediction = position + velocity_prediction * self._CONTROL_RATE
 
+        # THESE VALUES NEED TO BE SCALED. Squish acc by dt?
         self.cf.cmdFullState(
             pos=position_prediction,
             vel=velocity_prediction,
@@ -200,8 +205,8 @@ class Adversary(LeafSystem):
         self._land_position = self.cf.position()
 
         # Take Off Script:
-        self.cf.takeoff(targetHeight=self.target_height, duration=1.5)
-        self.timeHelper.sleep(1.5)
+        self.cf.takeoff(targetHeight=self.target_height, duration=1.0)
+        self.timeHelper.sleep(1.0)
 
         # Save initial Position:
         self._initial_position = self.cf.position()
