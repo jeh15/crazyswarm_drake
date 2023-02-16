@@ -48,7 +48,7 @@ class FigureEight(LeafSystem):
         def on_periodic(context, event):
             _x, _y = self._figure_eight_trajectory(context)
 
-            # DEBUG:
+            # Visibility for Debug/Logging:
             self._reference_trajectory = np.asarray(
                 [_x, _y],
                 dtype=float,
@@ -75,7 +75,7 @@ class FigureEight(LeafSystem):
 
     # Class Methods:
     def _figure_eight_trajectory(self, context):
-        _r = 0.5
+        _r = 1.0
         _factor = 2.0
         _time = context.get_time() / _factor
         _x = _r * np.cos(_time - np.pi / 2.0)

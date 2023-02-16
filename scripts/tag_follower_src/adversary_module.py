@@ -31,18 +31,15 @@ class Adversary(LeafSystem):
         self._target_position = np.zeros((3,), dtype=float)
 
         # PID Controller:
-        self.saturation_limit = 0.0
-        self.saturation_max_limit = 200.0
-        self.ramp_time = 30.0
-        self._safety_offset = 0.075
+        self.saturation_limit = 55.0
+        self.velocity_limit = 1.0
+        self._safety_offset = 0.01
         self._error_previous = 0.0
         self._error = np.zeros((3,), dtype=float)
         self._error_derivative = np.zeros((3,), dtype=float)
         
-        self._P_limt = 100.0
-        self._P_init = 50.0
-        self._P = 100.0
-        self._D = 20.0
+        self._P = 50.0
+        self._D = 5.0
 
         # Initialize Values:
         self.target_height = 0.25
@@ -118,9 +115,6 @@ class Adversary(LeafSystem):
         output.SetFromVector(a_value.get_mutable_value())
 
     def pd_control(self, context) -> None:
-        # Get control saturation limit:
-        self.limiter(context)
-
         # Get target position from input:
         target_position = np.asarray((self.get_input_port(0).Eval(context))[:3])
 
@@ -163,18 +157,6 @@ class Adversary(LeafSystem):
             yaw=0.0,
         )
     
-    def limiter(self, context):
-        context_time = context.get_time()
-        if context_time <= self.ramp_time:
-            control_input_ramp = [0.0, self.saturation_max_limit]
-            gain_schedule = [self._P_init, self._P_limt]
-            ramp_time = [0.0, self.ramp_time]
-            self.saturation_limit = np.interp(context_time, ramp_time, control_input_ramp)
-            self._P = np.interp(context_time, ramp_time, gain_schedule)
-        else:
-            self._P = self._P_limt
-            self.saturation_limit = self.saturation_max_limit
-
     def initialize_driver(self):
         # ROS Subscriber Callback: Estimated Velocity and Acceleration
         def subscriber_callback(data):
@@ -188,7 +170,7 @@ class Adversary(LeafSystem):
         # Initialize Crazyflies:
         print(f"Initializing Crazyswarm...")
         self.swarm = Crazyswarm()
-        self.cf = self.swarm.allcfs.crazyflies[-1]
+        self.cf = self.swarm.allcfs.crazyflies[0]
         if self.cf:
             print(f"Crazyflie connected...")
         else:
@@ -203,7 +185,7 @@ class Adversary(LeafSystem):
             print(f"Time Helper not connected...")
 
         # Define Suscriber Callback for State Estimation:
-        rospy.Subscriber("/cf4/log1", GenericLogData, subscriber_callback)
+        rospy.Subscriber("/cf2/log1", GenericLogData, subscriber_callback)
 
         # Save Ground Position:
         self._land_position = self.cf.position()

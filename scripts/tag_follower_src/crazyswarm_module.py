@@ -178,7 +178,7 @@ class CrazyswarmSystem(LeafSystem):
         # Initialize Crazyflies:
         print(f"Initializing Crazyswarm...")
         self.swarm = Crazyswarm()
-        self.cf = self.swarm.allcfs.crazyflies[0]
+        self.cf = self.swarm.allcfs.crazyflies[-1]
         if self.cf:
             print(f"Crazyflie connected...")
         else:
@@ -193,7 +193,7 @@ class CrazyswarmSystem(LeafSystem):
             print(f"Time Helper not connected...")
 
         # Define Suscriber Callback for State Estimation:
-        rospy.Subscriber("/cf2/log1", GenericLogData, subscriber_callback)
+        rospy.Subscriber("/cf4/log1", GenericLogData, subscriber_callback)
 
         # Save Ground Position:
         self._land_position = self.cf.position()

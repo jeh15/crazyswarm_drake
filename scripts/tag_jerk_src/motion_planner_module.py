@@ -54,17 +54,17 @@ class QuadraticProgram(LeafSystem):
         self._num_slack = self._num_state_slack + self._num_risk_slack
         # Size of design variable vector:
         self._setpoint = jnp.zeros(
-            ((self._full_size + self._num_slack) * self._nodes,),
+            ((self._full_size + self._num_slack + 2) * self._nodes,),
             dtype=float,
         )
 
         self._state_bounds = jnp.asarray(
-            [2.0, 2.0, 0.075],
+            [2.0, 2.0, 0.1, 1.0],
             dtype=float,
         )
 
         self._weights = jnp.asarray(
-            [100.0, 1.0, 0.01, 1.0],
+            [100.0, 1.0, 0.01, 0.1, 1.0],
             dtype=float,
         )
 
@@ -78,6 +78,7 @@ class QuadraticProgram(LeafSystem):
                 -self._state_bounds[0] * np.ones(self._state_dimension * self._nodes,),
                 -self._state_bounds[1] * np.ones(self._state_dimension * self._nodes,),
                 -self._state_bounds[2] * np.ones(self._state_dimension * self._nodes,),
+                -self._state_bounds[3] * np.ones(self._state_dimension * self._nodes,),
                 np.zeros(self._num_state_slack * self._nodes,),
                 np.NINF * np.ones(self._num_risk_slack * self._nodes,),
             ],
@@ -88,16 +89,12 @@ class QuadraticProgram(LeafSystem):
                 self._state_bounds[0] * np.ones(self._state_dimension * self._nodes,),
                 self._state_bounds[1] * np.ones(self._state_dimension * self._nodes,),
                 self._state_bounds[2] * np.ones(self._state_dimension * self._nodes,),
+                self._state_bounds[3] * np.ones(self._state_dimension * self._nodes,),
                 np.Inf * np.ones(self._num_state_slack * self._nodes,),
                 np.zeros(self._num_risk_slack * self._nodes,),
             ],
             axis=0,
         )
-
-        # self._weights = jnp.asarray(
-        #     [100.0, 4.0, 1.0],
-        #     dtype=float,
-        # )
 
         # Initialize for T = 0:
         self._full_state_trajectory = np.zeros(
@@ -106,7 +103,7 @@ class QuadraticProgram(LeafSystem):
         )
 
         self._warm_start = np.zeros(
-            ((self._full_size + self._num_slack) * self._nodes,),
+            ((self._full_size + self._num_slack + 2) * self._nodes,),
             dtype=float,
         )
 
@@ -203,7 +200,7 @@ class QuadraticProgram(LeafSystem):
         """
 
         # Sort State Vector:
-        q = q.reshape((num_states + num_slack, -1))
+        q = q.reshape((num_states + num_slack + 2, -1))
 
         # State Nodes:
         x = q[0, :]
@@ -212,6 +209,8 @@ class QuadraticProgram(LeafSystem):
         dy = q[3, :]
         ux = q[4, :]
         uy = q[5, :]
+        jerk_x = q[6, :]
+        jerk_y = q[7, :]
 
         # 1. Initial Condition Constraints:
         initial_condition = jnp.array([
@@ -230,6 +229,8 @@ class QuadraticProgram(LeafSystem):
         y_defect = _collocation_constraint([y, dy], dt)
         dx_defect = _collocation_constraint([dx, ddx], dt)
         dy_defect = _collocation_constraint([dy, ddy], dt)
+        ddx_defect = _collocation_constraint([ddx, jerk_x], dt)
+        ddy_defect = _collocation_constraint([ddy, jerk_y], dt)
 
         equality_constraint = jnp.concatenate(
             [
@@ -238,6 +239,8 @@ class QuadraticProgram(LeafSystem):
                 y_defect,
                 dx_defect,
                 dy_defect,
+                ddx_defect,
+                ddy_defect,
             ]
         )
 
@@ -263,13 +266,13 @@ class QuadraticProgram(LeafSystem):
         """
 
         # Sort State Vector:
-        q = q.reshape((num_states + num_slack, -1))
+        q = q.reshape((num_states + num_slack + 2, -1))
 
         # State Nodes:
         states_position = q[:2, :]
 
         # Position Slack Variables:
-        slack_position = q[6:8, :]
+        slack_position = q[8:10, :]
 
         # Risk Slack Variable:
         slack_variable = q[-1, :]
@@ -318,15 +321,16 @@ class QuadraticProgram(LeafSystem):
         """
 
         # Sort State Vector:
-        q = q.reshape((num_states + num_slack, -1))
+        q = q.reshape((num_states + num_slack + 2, -1))
 
         # State Nodes:
         states_position = q[:2, :]
         states_velocity = q[2:4, :]
         states_control = q[4:6, :]
+        states_jerk = q[6:8, :]
 
         # Position Slack Variables:
-        slack_position = q[6:8, :]
+        slack_position = q[8:10, :]
 
         # Risk Slack Variable:
         slack_variable = q[-1, :]
@@ -334,8 +338,9 @@ class QuadraticProgram(LeafSystem):
         minimize_slack_position = w[0] * jnp.sum(slack_position ** 2, axis=0)
         minimize_acceleration_effort = w[1] * jnp.sum(states_control ** 2, axis=0)
         minimize_velocity_effort = w[2] * jnp.sum(states_velocity ** 2, axis=0)
-        minimize_failure = -w[3] * jnp.sum(slack_variable, axis=0)
-        objective_function = jnp.sum(minimize_slack_position + minimize_acceleration_effort + minimize_velocity_effort + minimize_failure, axis=0)
+        minimize_jerk = w[3] * jnp.sum(states_jerk ** 2, axis=0)
+        minimize_failure = -w[4] * jnp.sum(slack_variable, axis=0)
+        objective_function = jnp.sum(minimize_slack_position + minimize_acceleration_effort + minimize_velocity_effort + minimize_jerk + minimize_failure, axis=0)
 
         return objective_function
 
@@ -433,7 +438,7 @@ class QuadraticProgram(LeafSystem):
         self.prog = mp.MathematicalProgram()
 
         # State and Control Input Variables:
-        self.opt_vars = self.prog.NewContinuousVariables((self._full_size + self._num_slack) * self._nodes, "x")
+        self.opt_vars = self.prog.NewContinuousVariables((self._full_size + self._num_slack + 2) * self._nodes, "x")
 
         # Optimization Variable Bounds:
         self.prog.AddBoundingBoxConstraint(
@@ -496,9 +501,6 @@ class QuadraticProgram(LeafSystem):
             limit=self._state_bounds[2].astype(float),
         )
         initial_conditions = np.asarray(initial_conditions)
-
-        # print(f"Velocity Initial Conditions: {initial_conditions[3:6]}")
-        # print(f"Control Input Initial Conditions: {initial_conditions[6:9]}")
 
         # Update Risk Constraints:
         risk_constraints = np.asarray(
@@ -591,7 +593,7 @@ class QuadraticProgram(LeafSystem):
             print(f"Objective Function Convex: {self.objective_function.evaluator().is_convex()}")
             pdb.set_trace()
 
-        opt_sol = np.reshape(self.solution.GetSolution(self.opt_vars), (self._full_size + self._num_slack, -1))
+        opt_sol = np.reshape(self.solution.GetSolution(self.opt_vars), (self._full_size + self._num_slack + 2, -1))
         
         x_sol = opt_sol[0, :]
         y_sol = opt_sol[1, :]
@@ -599,9 +601,11 @@ class QuadraticProgram(LeafSystem):
         dy_sol = opt_sol[3, :]
         ux_sol = opt_sol[4, :]
         uy_sol = opt_sol[5, :]
-        sx_sol = opt_sol[6, :]
-        sy_sol = opt_sol[7, :]
-        s_sol = opt_sol[8, :]
+        jx_sol = opt_sol[6, :]
+        jy_sol = opt_sol[7, :]
+        sx_sol = opt_sol[8, :]
+        sy_sol = opt_sol[9, :]
+        s_sol = opt_sol[10, :]
 
         ddx = self.compute_acceleration(ux_sol, dx_sol)
         ddy = self.compute_acceleration(uy_sol, dy_sol)
@@ -620,6 +624,7 @@ class QuadraticProgram(LeafSystem):
                 x_sol, y_sol,
                 dx_sol, dy_sol,
                 ux_sol, uy_sol,
+                jx_sol, jy_sol,
                 sx_sol, sy_sol,
                 s_sol,
             ], 

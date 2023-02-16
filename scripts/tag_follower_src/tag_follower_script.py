@@ -5,7 +5,7 @@ import ml_collections
 
 import matplotlib.pyplot as plt
 from matplotlib.animation import FFMpegWriter
-from matplotlib.patches import Circle, Rectangle
+from matplotlib.patches import Circle
 import pdb
 
 from pydrake.systems.analysis import Simulator
@@ -13,6 +13,7 @@ from pydrake.systems.framework import DiagramBuilder
 
 # Custom LeafSystems:
 import motion_planner_module as motion_planner
+import reference_trajectory_module as reference_trajectory
 import trajectory_parser_module as trajectory_parser
 import crazyswarm_module as crazyswarm_controller
 import adversary_module as adversary_controller
@@ -26,19 +27,20 @@ import save_data
 def get_config() -> ml_collections.ConfigDict():
     config = ml_collections.ConfigDict()
     # Control Rates:
-    config.motion_planner_rate = 1.0 / 30.0
+    config.motion_planner_rate = 1.0 / 40.0
+    config.reference_trajectory_rate = 1.0 / 40.0
     config.crazyswarm_rate = 1.0 / 100.0
     config.adversary_rate = 1.0 / 100.0
     # Model Parameters:
-    config.nodes = 51 #21      
-    config.state_dimension = 2       
-    config.time_horizon = 2.0 #3.0 #2.0
+    config.nodes = 21                   # (Discretized Points)
+    config.control_horizon = 11         # (Node to control to) Not used
+    config.state_dimension = 2          # (x, y)
+    config.time_horizon = 2.0
     config.dt = config.time_horizon / (config.nodes - 1.0)
-    config.area_bounds = 0.75
     # Spline Parameters:
     config.spline_resolution = 7
     config.bin_resolution = 100
-    config.failure_radius = 0.25
+    config.failure_radius = 0.1
     return config
 
 def main(argv=None):
@@ -47,6 +49,10 @@ def main(argv=None):
 
     # Create a block diagram containing our system.
     builder = DiagramBuilder()
+
+    # Reference Motion:
+    driver_reference = reference_trajectory.FigureEight(config=params)
+    reference = builder.AddSystem(driver_reference)
 
     # Motion Planner:
     driver_planner = motion_planner.QuadraticProgram(config=params)
@@ -69,6 +75,12 @@ def main(argv=None):
     regression = builder.AddSystem(driver_regression)
 
     # Connect Systems:
+    # Reference Out -> Motion Planner Target Position
+    builder.Connect(
+        reference.get_output_port(0),
+        planner.get_input_port(driver_planner.target_input)
+    )
+
     # Motion Planner Out -> Parser In
     builder.Connect(
         planner.get_output_port(0),
@@ -134,12 +146,13 @@ def main(argv=None):
     simulator.Initialize()
 
     # Simulate System:
-    FINAL_TIME = 60.0
+    FINAL_TIME = 30.0
     dt = 0.1
     next_time_step = dt
 
     # Lists to store data for animation:
     realtime_rate_history = []
+    reference_history = []
     motion_planner_history = []
     parser_history = []
     adversary_history = []
@@ -153,6 +166,7 @@ def main(argv=None):
         print(f"Drake Real Time Rate: {simulator.get_actual_realtime_rate()}")
         realtime_rate_history.append(simulator.get_actual_realtime_rate())
         motion_planner_history.append(driver_planner._full_state_trajectory)
+        reference_history.append(driver_reference._reference_trajectory)
         parser_history.append(driver_parser._current_trajectory)
         adversary_history.append(driver_adversary._state_output)
         fp_history.append(driver_regression._fp_sol)
@@ -176,9 +190,18 @@ def main(argv=None):
     # Land the Drone:
     driver_crazyswarm.execute_landing_sequence()
 
+    # Helper function to show reference trajectory:
+    def figure_eight_trajectory():
+        _r = 1.0
+        _time = np.linspace(0, 2 * np.pi)
+        _x = _r * np.cos(_time - np.pi / 2.0)
+        _y = _r / 2.0 * np.sin(2 * _time)
+        return _x, _y
+
     # Plot results:
     fig_playback, ax_playback = plt.subplots()
     fig_playback.tight_layout(pad=2.5)
+    ref_plot, = ax_playback.plot([], [], color='black', alpha=0.1, linewidth=0.5)
     planner_plot, = ax_playback.plot([], [], color='cornflowerblue', alpha=0.5, linewidth=1.0)
     # Simulation Plot:
     ax_playback.axis('equal')
@@ -188,25 +211,19 @@ def main(argv=None):
 
     # Animation
     ax_playback.set_title('Risk Learning Animation:')
-    video_title = "hardware_risk_learning_playback"
+    video_title = "hardware_risk_learning"
 
     # Initialize Patches and Plots:
+    ref = Circle((0, 0), radius=0.05, color='black')
     adv = Circle((0, 0), radius=0.01, color='red')
     agn = Circle((0, 0), radius=0.01, color='cornflowerblue')
     rad = Circle((0, 0), radius=params.failure_radius, color='red', alpha=0.1)
-    arena = Rectangle(
-        (-params.area_bounds, -params.area_bounds),
-        width=2*params.area_bounds,
-        height=2*params.area_bounds,
-        linewidth=1.0,
-        edgecolor='red',
-        facecolor='None',
-        alpha=0.1,
-    )
     ax_playback.add_patch(adv)
     ax_playback.add_patch(agn)
     ax_playback.add_patch(rad)
-    ax_playback.add_patch(arena)
+
+    x_figure_eight, y_figure_eight = figure_eight_trajectory()
+    ref_plot.set_data(x_figure_eight, y_figure_eight)
 
     # Setup Animation Writer:
     dpi = 300
@@ -225,6 +242,8 @@ def main(argv=None):
                 sample_rate = 1
 
             for _ in range(0, int(sample_rate)):
+                # Plot Reference Trajectory:
+                ref.center = reference_history[i][0], reference_history[i][1]
                 # Plot Adversary:
                 adv.center = adversary_history[i][0], adversary_history[i][1]
                 rad.center = adversary_history[i][0], adversary_history[i][1]
@@ -238,56 +257,30 @@ def main(argv=None):
                 # Grab and Save Frame:
                 writerObj.grab_frame()
 
-    # Learning Framework:
-    fig_regression, ax_regression = plt.subplots(2)
-    fig_regression.tight_layout(pad=2.5)
+    # # Learning Framework:
+    # fig_regression, ax_regression = plt.subplots()
+    # fig_regression.tight_layout(pad=2.5)
 
-    data_plot, = ax_regression[0].plot([], [], color='black', marker='.', linestyle='None')
-    fp, = ax_regression[0].plot([], [], color='red')
-    ls, = ax_regression[1].plot([], [], color='red')
+    # data_plot, = ax_regression[0].plot([], [], color='black', marker='.', linestyle='None')
+    # fp, = ax_regression[0].plot([], [], color='red')
+    # ls, = ax_regression[1].plot([], [], color='red')
 
-    # FP Plot:
-    ax_regression[0].set_xlim([-1, 3])  # X Lim
-    ax_regression[0].set_ylim([-1, 2])  # Y Lim
-    ax_regression[0].set_xlabel('delta')  # X Label
-    ax_regression[0].set_ylabel('r(delta)')  # Y Label
-    # LS Plot:
-    ax_regression[1].set_xlim([-1, 3])  # X Lim
-    ax_regression[1].set_ylim([-2, 1])  # Y Lim
-    ax_regression[1].set_xlabel('delta')  # X Label
-    ax_regression[1].set_ylabel('s(delta)')  # Y Label
+    # # FP Plot:
+    # ax_regression[0].set_xlim([-1, 3])  # X Lim
+    # ax_regression[0].set_ylim([-1, 2])  # Y Lim
+    # ax_regression[0].set_xlabel('delta')  # X Label
+    # ax_regression[0].set_ylabel('r(delta)')  # Y Label
+    # # LS Plot:
+    # ax_regression[1].set_xlim([-1, 3])  # X Lim
+    # ax_regression[1].set_ylim([-2, 1])  # Y Lim
+    # ax_regression[1].set_xlabel('delta')  # X Label
+    # ax_regression[1].set_ylabel('s(delta)')  # Y Label
 
-    # Animation
-    ax_regression[0].set_title('Risk Learning Framework:')
-    video_title = "hardware_risk_learning_regression"
-
-    # Setup Animation Writer:
-    dpi = 300
-    FPS = 20
-    simulation_size = len(realtime_rate_history)
-    sample_rate = int(1 / (dt * FPS))
-    writerObj = FFMpegWriter(fps=FPS)
-
-    # Plot and Create Animation:
-    with writerObj.saving(fig_regression, video_title+".mp4", dpi):
-        for i in range(0, simulation_size):
-            dt_realtime = dt * realtime_rate_history[i]
-            sample_rate = np.ceil(dt_realtime * FPS)
-
-            if sample_rate <= 1:
-                sample_rate = 1
-
-            for _ in range(0, int(sample_rate)):
-                # Plot FP:
-                data_plot.set_data(data_history[i][0, :], data_history[i][1, :])
-                fp.set_data(fp_history[i][0, :], fp_history[i][1, :])
-                # Plot LS:
-                ls.set_data(ls_history[i][0, :], ls_history[i][1, :])
-                # Update Drawing:
-                fig_regression.canvas.draw()  # Update the figure with the new changes
-                # Grab and Save Frame:
-                writerObj.grab_frame()
-
+    # # Plot FP:
+    # data_plot.set_data(data_history[i][0, :], data_history[i][1, :])
+    # fp.set_data(fp_history[i][0, :], fp_history[i][1, :])
+    # # Plot LS:
+    # ls.set_data(ls_history[i][0, :], ls_history[i][1, :])
 
 if __name__ == "__main__":
     main()

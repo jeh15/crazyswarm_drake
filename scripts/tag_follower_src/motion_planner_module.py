@@ -44,7 +44,8 @@ class QuadraticProgram(LeafSystem):
         self._friction = 0.01
         self._tol = 1e-03
         self._solve_flag = 0
-        self._area_limit = jnp.array([config.area_bounds, config.area_bounds], dtype=float)
+        self._area_limit = jnp.array([1.0, 1.0], dtype=float)
+        # self._area_limit = jnp.array([1.0, 1.0], dtype=float)
 
         # State Size for Optimization: (Seems specific to this implementation should not be a config param)
         self._state_size = self._state_dimension * 2
@@ -59,17 +60,12 @@ class QuadraticProgram(LeafSystem):
         )
 
         self._state_bounds = jnp.asarray(
-            [2.0, 2.0, 0.075],
-            dtype=float,
-        )
-
-        self._weights = jnp.asarray(
-            [100.0, 1.0, 0.01, 1.0],
+            [1.5, 2, 0.1],
             dtype=float,
         )
 
         # self._state_bounds = jnp.asarray(
-        #     [2.0, 2.0, 0.1],
+        #     [5, 10, 0.1],
         #     dtype=float,
         # )
 
@@ -94,8 +90,14 @@ class QuadraticProgram(LeafSystem):
             axis=0,
         )
 
+        # Good Values:
+        self._weights = jnp.asarray(
+            [1.0, 100.0, 10.0, 1.0],
+            dtype=float,
+        )
+
         # self._weights = jnp.asarray(
-        #     [100.0, 4.0, 1.0],
+        #     [1.0, 1.5, 5.0, 1.0],
         #     dtype=float,
         # )
 
@@ -121,6 +123,12 @@ class QuadraticProgram(LeafSystem):
         self.initial_condition_input = self.DeclareVectorInputPort(
             "initial_condition",
             9,
+        ).get_index()
+
+        # Target Position to follow from Reference Trajectory: (x, y)
+        self.target_input = self.DeclareVectorInputPort(
+            "target_position",
+            self._state_dimension,
         ).get_index()
 
         # Current Obstacle States from CrazySwarm: (x, y, z, dx, dy, dz)
@@ -305,6 +313,7 @@ class QuadraticProgram(LeafSystem):
     def _objective_function(
         self,
         q: jax.Array,
+        target_position: jax.Array,
         w: jax.Array,
         num_states: int,
         num_slack: int,
@@ -312,9 +321,8 @@ class QuadraticProgram(LeafSystem):
         print(f"Objective Compiled")
         """
         Objective Function:
-            1. State Area Bound
+            1. State Error Objective
             2. Control Effort Objective
-            3. Risk Minimization
         """
 
         # Sort State Vector:
@@ -331,11 +339,13 @@ class QuadraticProgram(LeafSystem):
         # Risk Slack Variable:
         slack_variable = q[-1, :]
 
-        minimize_slack_position = w[0] * jnp.sum(slack_position ** 2, axis=0)
-        minimize_acceleration_effort = w[1] * jnp.sum(states_control ** 2, axis=0)
-        minimize_velocity_effort = w[2] * jnp.sum(states_velocity ** 2, axis=0)
+        task_error = states_position - target_position.reshape(-1, 1)
+
+        minimize_task_error = w[0] * jnp.sum(task_error ** 2, axis=0)
+        minimize_slack_position = w[1] * jnp.sum(slack_position ** 2, axis=0)
+        minimize_effort = w[2] * jnp.sum(states_control ** 2, axis=0)
         minimize_failure = -w[3] * jnp.sum(slack_variable, axis=0)
-        objective_function = jnp.sum(minimize_slack_position + minimize_acceleration_effort + minimize_velocity_effort + minimize_failure, axis=0)
+        objective_function = jnp.sum(minimize_task_error + minimize_slack_position + minimize_effort + minimize_failure, axis=0)
 
         return objective_function
 
@@ -354,6 +364,7 @@ class QuadraticProgram(LeafSystem):
             limit=self._state_bounds[2].astype(float),
         )
         initial_conditions = np.asarray(initial_conditions)
+        target_positions = np.asarray(self.get_input_port(self.target_input).Eval(context))
 
         # Update Risk Constraints:
         risk_constraints = np.asarray(
@@ -390,8 +401,9 @@ class QuadraticProgram(LeafSystem):
             num_slack=self._num_slack,
         )
 
-        self.objective_func = lambda x: self._objective_function(
+        self.objective_func = lambda x, qd: self._objective_function(
             q=x,
+            target_position=qd,
             w=self._weights,
             num_states=self._full_size,
             num_slack=self._num_slack,
@@ -426,8 +438,8 @@ class QuadraticProgram(LeafSystem):
         # Compute H and f matrcies for objective function:
         self._H_fn = jax.jit(jacfwd(jacrev(self.objective_func)))
         self._f_fn = jax.jit(jacfwd(self.objective_func))
-        H = self._H_fn(self._setpoint)
-        f = self._f_fn(self._setpoint)
+        H = self._H_fn(self._setpoint, target_positions)
+        f = self._f_fn(self._setpoint, target_positions)
 
         # Construct gurobi Problem:
         self.prog = mp.MathematicalProgram()
@@ -468,9 +480,6 @@ class QuadraticProgram(LeafSystem):
         """gurobi:"""
         self.gurobi = GurobiSolver()
         self.solver_options = SolverOptions()
-        self.solver_options.SetOption(self.gurobi.solver_id(), "BarConvTol", 1e-6)
-        self.solver_options.SetOption(self.gurobi.solver_id(), "FeasibilityTol", 1e-6)
-        self.solver_options.SetOption(self.gurobi.solver_id(), "OptimalityTol", 1e-8)
 
         self.solution = self.gurobi.Solve(
             self.prog,
@@ -496,9 +505,7 @@ class QuadraticProgram(LeafSystem):
             limit=self._state_bounds[2].astype(float),
         )
         initial_conditions = np.asarray(initial_conditions)
-
-        # print(f"Velocity Initial Conditions: {initial_conditions[3:6]}")
-        # print(f"Control Input Initial Conditions: {initial_conditions[6:9]}")
+        target_positions = np.asarray(self.get_input_port(self.target_input).Eval(context))
 
         # Update Risk Constraints:
         risk_constraints = np.asarray(
@@ -538,8 +545,8 @@ class QuadraticProgram(LeafSystem):
         b_ineq_lb[:] = np.NINF
 
         # Compute H and f matrcies for objective function:
-        H = self._H_fn(self._setpoint)
-        f = self._f_fn(self._setpoint)
+        H = self._H_fn(self._setpoint, target_positions)
+        f = self._f_fn(self._setpoint, target_positions)
 
         # Update Constraint and Objective Function:
         self.equality_constraint.evaluator().UpdateCoefficients(

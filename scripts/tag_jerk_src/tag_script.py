@@ -26,15 +26,15 @@ import save_data
 def get_config() -> ml_collections.ConfigDict():
     config = ml_collections.ConfigDict()
     # Control Rates:
-    config.motion_planner_rate = 1.0 / 30.0
+    config.motion_planner_rate = 1.0 / 50.0
     config.crazyswarm_rate = 1.0 / 100.0
     config.adversary_rate = 1.0 / 100.0
     # Model Parameters:
-    config.nodes = 51 #21      
+    config.nodes = 21 #21      
     config.state_dimension = 2       
-    config.time_horizon = 2.0 #3.0 #2.0
+    config.time_horizon = 1.0 #3.0 #2.0
     config.dt = config.time_horizon / (config.nodes - 1.0)
-    config.area_bounds = 0.75
+    config.area_bounds = 0.6
     # Spline Parameters:
     config.spline_resolution = 7
     config.bin_resolution = 100
@@ -134,7 +134,7 @@ def main(argv=None):
     simulator.Initialize()
 
     # Simulate System:
-    FINAL_TIME = 60.0
+    FINAL_TIME = 30.0
     dt = 0.1
     next_time_step = dt
 
@@ -238,55 +238,55 @@ def main(argv=None):
                 # Grab and Save Frame:
                 writerObj.grab_frame()
 
-    # Learning Framework:
-    fig_regression, ax_regression = plt.subplots(2)
-    fig_regression.tight_layout(pad=2.5)
+    # # Learning Framework:
+    # fig_regression, ax_regression = plt.subplots(2)
+    # fig_regression.tight_layout(pad=2.5)
 
-    data_plot, = ax_regression[0].plot([], [], color='black', marker='.', linestyle='None')
-    fp, = ax_regression[0].plot([], [], color='red')
-    ls, = ax_regression[1].plot([], [], color='red')
+    # data_plot, = ax_regression[0].plot([], [], color='black', marker='.', linestyle='None')
+    # fp, = ax_regression[0].plot([], [], color='red')
+    # ls, = ax_regression[1].plot([], [], color='red')
 
-    # FP Plot:
-    ax_regression[0].set_xlim([-1, 3])  # X Lim
-    ax_regression[0].set_ylim([-1, 2])  # Y Lim
-    ax_regression[0].set_xlabel('delta')  # X Label
-    ax_regression[0].set_ylabel('r(delta)')  # Y Label
-    # LS Plot:
-    ax_regression[1].set_xlim([-1, 3])  # X Lim
-    ax_regression[1].set_ylim([-2, 1])  # Y Lim
-    ax_regression[1].set_xlabel('delta')  # X Label
-    ax_regression[1].set_ylabel('s(delta)')  # Y Label
+    # # FP Plot:
+    # ax_regression[0].set_xlim([-1, 3])  # X Lim
+    # ax_regression[0].set_ylim([-1, 2])  # Y Lim
+    # ax_regression[0].set_xlabel('delta')  # X Label
+    # ax_regression[0].set_ylabel('r(delta)')  # Y Label
+    # # LS Plot:
+    # ax_regression[1].set_xlim([-1, 3])  # X Lim
+    # ax_regression[1].set_ylim([-2, 1])  # Y Lim
+    # ax_regression[1].set_xlabel('delta')  # X Label
+    # ax_regression[1].set_ylabel('s(delta)')  # Y Label
 
-    # Animation
-    ax_regression[0].set_title('Risk Learning Framework:')
-    video_title = "hardware_risk_learning_regression"
+    # # Animation
+    # ax_regression[0].set_title('Risk Learning Framework:')
+    # video_title = "hardware_risk_learning_regression"
 
-    # Setup Animation Writer:
-    dpi = 300
-    FPS = 20
-    simulation_size = len(realtime_rate_history)
-    sample_rate = int(1 / (dt * FPS))
-    writerObj = FFMpegWriter(fps=FPS)
+    # # Setup Animation Writer:
+    # dpi = 300
+    # FPS = 20
+    # simulation_size = len(realtime_rate_history)
+    # sample_rate = int(1 / (dt * FPS))
+    # writerObj = FFMpegWriter(fps=FPS)
 
-    # Plot and Create Animation:
-    with writerObj.saving(fig_regression, video_title+".mp4", dpi):
-        for i in range(0, simulation_size):
-            dt_realtime = dt * realtime_rate_history[i]
-            sample_rate = np.ceil(dt_realtime * FPS)
+    # # Plot and Create Animation:
+    # with writerObj.saving(fig_regression, video_title+".mp4", dpi):
+    #     for i in range(0, simulation_size):
+    #         dt_realtime = dt * realtime_rate_history[i]
+    #         sample_rate = np.ceil(dt_realtime * FPS)
 
-            if sample_rate <= 1:
-                sample_rate = 1
+    #         if sample_rate <= 1:
+    #             sample_rate = 1
 
-            for _ in range(0, int(sample_rate)):
-                # Plot FP:
-                data_plot.set_data(data_history[i][0, :], data_history[i][1, :])
-                fp.set_data(fp_history[i][0, :], fp_history[i][1, :])
-                # Plot LS:
-                ls.set_data(ls_history[i][0, :], ls_history[i][1, :])
-                # Update Drawing:
-                fig_regression.canvas.draw()  # Update the figure with the new changes
-                # Grab and Save Frame:
-                writerObj.grab_frame()
+    #         for _ in range(0, int(sample_rate)):
+    #             # Plot FP:
+    #             data_plot.set_data(data_history[i][0, :], data_history[i][1, :])
+    #             fp.set_data(fp_history[i][0, :], fp_history[i][1, :])
+    #             # Plot LS:
+    #             ls.set_data(ls_history[i][0, :], ls_history[i][1, :])
+    #             # Update Drawing:
+    #             fig_regression.canvas.draw()  # Update the figure with the new changes
+    #             # Grab and Save Frame:
+    #             writerObj.grab_frame()
 
 
 if __name__ == "__main__":
