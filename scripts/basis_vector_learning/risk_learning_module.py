@@ -1,5 +1,3 @@
-from functools import partial
-
 import numpy as np
 import ml_collections
 
@@ -27,7 +25,7 @@ class RiskLearning(LeafSystem):
         self._spline_resolution = config.spline_resolution
         self._bin_resolution = config.bin_resolution
         self._failure_radius = config.failure_radius
-        self._basis_vector_dim = config.candidate_sources
+        self._basis_vector_dim = config.candidate_sources_dimension
 
         # Make sure number of bins and splines are compatable:
         if (self._bin_resolution < self._spline_resolution):
@@ -58,20 +56,20 @@ class RiskLearning(LeafSystem):
         self.basis_vector_state_index = self.DeclareAbstractState(basis_vector_output_state_init)
 
         # Declare Output: Updated Risk Constraint
-        self.DeclareVectorOutputPort(
+        self.constraint_output = self.DeclareVectorOutputPort(
             "risk_constraint_output",
             constraint_output_size.shape[0],
             self.output_constraint_callback,
             {self.abstract_state_ticket(self.constraint_state_index)},
-        )
+        ).get_index()
 
         # Declare Output: Updated Risk Constraint
-        self.DeclareVectorOutputPort(
+        self.basis_vector_output = self.DeclareVectorOutputPort(
             "basis_vector_output",
             basis_vector_output_size.shape[0],
             self.output_basis_vector_callback,
             {self.abstract_state_ticket(self.basis_vector_state_index)},
-        )
+        ).get_index()
 
         # Declare Input:
         # Full State From CrazySwarm: (x, y, z, dx, dy, dz, ddx, ddy, ddz)

@@ -16,7 +16,7 @@ import motion_planner_module as motion_planner
 import trajectory_parser_module as trajectory_parser
 import crazyswarm_module as crazyswarm_controller
 import adversary_module as adversary_controller
-import scripts.basis_vector_learning.risk_learning_module as learning_framework
+import risk_learning_module as learning_framework
 
 # Saving Script:
 import save_data
@@ -30,15 +30,17 @@ def get_config() -> ml_collections.ConfigDict():
     config.crazyswarm_rate = 1.0 / 100.0
     config.adversary_rate = 1.0 / 100.0
     # Model Parameters:
-    config.nodes = 51 #21      
-    config.state_dimension = 2       
-    config.time_horizon = 3.0 #3.0 #2.0
+    config.nodes = 51
+    config.state_dimension = 2
+    config.time_horizon = 2.0
     config.dt = config.time_horizon / (config.nodes - 1.0)
     config.area_bounds = 0.75
     # Spline Parameters:
     config.spline_resolution = 7
     config.bin_resolution = 100
     config.failure_radius = 0.25
+    # Number of candidate sources for basis vector:
+    config.candidate_sources_dimension = 2
     return config
 
 def main(argv=None):
@@ -113,8 +115,14 @@ def main(argv=None):
 
     # Learning Framework -> Motion Planner Constraints:
     builder.Connect(
-        regression.get_output_port(0),
+        regression.get_output_port(driver_regression.constraint_output),
         planner.get_input_port(driver_planner.constraint_input)
+    )
+
+    # Learning Framework -> Motion Planner Basis Vector:
+    builder.Connect(
+        regression.get_output_port(driver_regression.basis_vector_output),
+        planner.get_input_port(driver_planner.basis_vector_input)
     )
 
     diagram = builder.Build()
