@@ -38,7 +38,7 @@ class QuadraticProgram(LeafSystem):
         self._dt = config.dt
         self._time_vector = np.linspace(0, self._time_horizon, self._nodes)
         self._spline_resolution = config.spline_resolution
-        self._basis_vector_dim = config.candidate_sources
+        self._basis_vector_dim = config.candidate_sources_dimension
 
         # Constants:
         self._mass = 0.027  # Actual Crazyflie Mass
@@ -60,7 +60,7 @@ class QuadraticProgram(LeafSystem):
         )
 
         self._state_bounds = jnp.asarray(
-            [2.0, 2.0, 0.1],
+            [2.0, 2.0, 0.05],
             dtype=float,
         )
 
@@ -128,7 +128,7 @@ class QuadraticProgram(LeafSystem):
 
         # Basis Vector from Learning Framework:
         self.basis_vector_input = self.DeclareVectorInputPort(
-            "risk_constraints",
+            "basis_vector",
             self._basis_vector_dim,
         ).get_index()
 
@@ -287,7 +287,7 @@ class QuadraticProgram(LeafSystem):
         linearized_distance = jnp.einsum('ij,ij->j', relative_distance, halfspace_vectors[:2, :]) * halfspace_ratios[0, :]
         linearized_velocity = jnp.einsum('ij,ij->j', relative_velocity, halfspace_vectors[2:, :]) * halfspace_ratios[1, :]
         # Project risk sources onto basis vector:
-        delta = np.einsum('ij,i->j', jnp.vstack([linearized_distance, linearized_velocity]), basis_vector)
+        delta = jnp.einsum('ij,i->j', jnp.vstack([linearized_distance, linearized_velocity]), basis_vector)
         # rfun[i, j] = s[j] - (m[i] * x[j] + b[i])
         rfun = (
             -((jnp.einsum('i,j->ij', slope, delta)) + intercept.reshape(intercept.shape[0], -1)) + slack_variable
@@ -369,6 +369,12 @@ class QuadraticProgram(LeafSystem):
 
         # Calculate halfspace vectors for linearization:
         adversary_trajectory, halfspace_vectors, halfspace_ratios = self.get_halfspace_vector(context)
+
+        # Visibility for logging:
+        self._adversary_trajectory =  adversary_trajectory
+        self._halfspace_vectors = halfspace_vectors
+        self._halfspace_ratios = halfspace_ratios
+        self._basis_vector = basis_vector
 
         # Isolate Functions to Lambda Functions and wrap them in staticmethod:
         self.equality_func = lambda x, ic: self._equality_constraints(
@@ -517,6 +523,11 @@ class QuadraticProgram(LeafSystem):
 
         # Calculate halfspace vectors for linearization:
         adversary_trajectory, halfspace_vectors, halfspace_ratios = self.get_halfspace_vector(context)
+        # Visibility for logging:
+        self._adversary_trajectory =  adversary_trajectory
+        self._halfspace_vectors = halfspace_vectors
+        self._halfspace_ratios = halfspace_ratios
+        self._basis_vector = basis_vector
 
         # Compute A and b matricies for equality constraints:
         A_eq = self._A_eq_fn(self._setpoint, initial_conditions)
@@ -634,6 +645,17 @@ class QuadraticProgram(LeafSystem):
             ], 
             axis=0,
         )
+
+        self._s_tilde= s_sol
+        self._delta, self._linearized_distance, self._linearized_velocity = self.get_risk_source(
+            self._adversary_trajectory,
+            opt_sol[:2, :],
+            opt_sol[3:5, :],
+            self._halfspace_vectors,
+            self._halfspace_ratios,
+            self._basis_vector,
+        )
+
         # How can I clean this up?
         a_state = context.get_mutable_abstract_state(self.state_index)
         a_state.set_value(self._full_state_trajectory)
@@ -649,7 +671,7 @@ class QuadraticProgram(LeafSystem):
         halfspace_position_vector = predicted_adversary_trajectory - previous_trajectory[:2, :]
         halfspace_velocity_vector = obstacle_states[3:5].reshape((2, -1)) - previous_trajectory[3:5, :]
         # Default if halfspace vector is a null vector:
-        halfspace_position_magnitude = np.linalg.norm(halfspace_position_vector)
+        halfspace_position_magnitude = np.linalg.norm(halfspace_position_vector, axis=0)
         halfspace_position_squared = np.einsum('ij,ij->j', halfspace_position_vector, halfspace_position_vector)
         halfspace_position_ratio = np.divide(
             halfspace_position_magnitude,
@@ -657,7 +679,7 @@ class QuadraticProgram(LeafSystem):
             out=np.zeros_like(halfspace_position_squared),
             where=halfspace_position_squared!=0.0,
         )
-        halfspace_velocity_magnitude = np.linalg.norm(halfspace_velocity_vector)
+        halfspace_velocity_magnitude = np.linalg.norm(halfspace_velocity_vector, axis=0)
         halfspace_velocity_squared = np.einsum('ij,ij->j', halfspace_velocity_vector, halfspace_velocity_vector)
         halfspace_velocity_ratio = np.divide(
             halfspace_velocity_magnitude,
@@ -666,3 +688,14 @@ class QuadraticProgram(LeafSystem):
             where=halfspace_velocity_squared!=0,
         )
         return predicted_adversary_trajectory, np.vstack([halfspace_position_vector, halfspace_velocity_vector]), np.vstack([halfspace_position_ratio, halfspace_velocity_ratio])
+
+    def get_risk_source(self, adversary_trajectory, states_position, states_velocity, halfspace_vectors, halfspace_ratios, basis_vector):
+        # 2. Risk Constraints:
+        relative_distance = adversary_trajectory - states_position
+        relative_velocity = adversary_trajectory - states_velocity
+        # Linearized risk source approximations:
+        linearized_distance = jnp.einsum('ij,ij->j', relative_distance, halfspace_vectors[:2, :]) * halfspace_ratios[0, :]
+        linearized_velocity = jnp.einsum('ij,ij->j', relative_velocity, halfspace_vectors[2:, :]) * halfspace_ratios[1, :]
+        # Project risk sources onto basis vector:
+        delta = jnp.einsum('ij,i->j', jnp.vstack([linearized_distance, linearized_velocity]), basis_vector)
+        return delta, linearized_distance, linearized_velocity

@@ -90,7 +90,7 @@ class RiskLearning(LeafSystem):
             self.lsn.configure_solver()
             initial_data = self.evaluate(context)
             self.data = initial_data
-            projected_data, self.basis_vector = projected_data(self.data)
+            projected_data, self.basis_vector = self.project_data(self.data)
             data = self.bin_data(projected_data)
             fp_solution = self.fpn.initialize_optimization(data=data)
             log_transform = np.vstack([fp_solution[0, :], np.log(1-fp_solution[1, :])])
@@ -130,7 +130,7 @@ class RiskLearning(LeafSystem):
         def periodic_output_event(context, event):
             current_data = self.evaluate(context)
             self.record_data(current_data)
-            projected_data, self.basis_vector = projected_data(self.data)
+            projected_data, self.basis_vector = self.project_data(self.data)
             data = self.bin_data(projected_data)
             fp_solution = self.fpn.initialize_optimization(data=data)
             log_transform = np.vstack([fp_solution[0, :], np.log(1-fp_solution[1, :])])
@@ -144,6 +144,7 @@ class RiskLearning(LeafSystem):
             self._fp_sol = fp_solution
             self._ls_sol = ls_solution
             self._data = data
+
 
         self.DeclarePeriodicEvent(
             period_sec=self._OUTPUT_UPDATE_RATE,
@@ -234,7 +235,7 @@ class RiskLearning(LeafSystem):
         # Find centroids:
         centroid_success = np.mean(data_success, axis=1)
         centroid_failure = np.mean(data_failure, axis=1)
-        vector = centroid_failure - centroid_success
+        vector =  centroid_success - centroid_failure
         if np.isnan(vector).any():
             vector = np.zeros_like(vector)
         magnitude = np.linalg.norm(vector)
@@ -244,5 +245,7 @@ class RiskLearning(LeafSystem):
         # data_proj = element_wise_dot(data, basis_vector)
         # Tianze's note: this is just a rotation problem. Rotate such that x == the projection and y == the distance
         data_projected = np.einsum('ij,i->j', data[:-1, :], basis_vector)
+        # Transform data back to original axes: (For Debug/Logging)
+        self._data_projected_origin = data_projected * np.reshape(basis_vector, (-1, 1))
         data_projected = np.vstack([data_projected, data[-1, :]])
         return data_projected, basis_vector

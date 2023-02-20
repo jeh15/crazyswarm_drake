@@ -32,17 +32,17 @@ class Adversary(LeafSystem):
 
         # PID Controller:
         self.saturation_limit = 0.0
-        self.saturation_max_limit = 200.0
-        self.ramp_time = 15.0
-        self._safety_offset = 0.075
+        self.saturation_max_limit = 100.0
+        self.ramp_time = 10.0
+        self._safety_offset = 0.1
         self._error_previous = 0.0
         self._error = np.zeros((3,), dtype=float)
         self._error_derivative = np.zeros((3,), dtype=float)
         
         self._P_limt = 100.0
-        self._P_init = 50.0
-        self._P = 100.0
-        self._D = 20.0
+        self._P_init = 10.0
+        self._P = 10.0
+        self._D = 50.0
 
         # Initialize Values:
         self.target_height = 0.25

@@ -19,7 +19,7 @@ import adversary_module as adversary_controller
 import risk_learning_module as learning_framework
 
 # Saving Script:
-import save_data
+import shelve_list
 
 
 # Convenient Data Class:
@@ -37,7 +37,7 @@ def get_config() -> ml_collections.ConfigDict():
     config.area_bounds = 0.75
     # Spline Parameters:
     config.spline_resolution = 7
-    config.bin_resolution = 100
+    config.bin_resolution = 51
     config.failure_radius = 0.25
     # Number of candidate sources for basis vector:
     config.candidate_sources_dimension = 2
@@ -153,19 +153,57 @@ def main(argv=None):
     adversary_history = []
     fp_history = []
     ls_history = []
-    data_history = []
+    bin_data_history = []
     solve_time = []
+    delta_history = []
+    s_history = []
+    raw_data_history = []
+    label_history = []
+    projected_data_history = []
+    basis_vector_history = []
+    
+    shelve_filename = "/tmp/basis_learning_shelve.out"
+    vars_to_shelve = [
+        'realtime_rate_history',
+        'motion_planner_history',
+        'parser_history',
+        'adversary_history',
+        'fp_history',
+        'ls_history',
+        'bin_data_history',
+        'solve_time',
+        'delta_history',
+        's_history',
+        'raw_data_history',
+        'label_history',
+        'projected_data_history',
+        'basis_vector_history',
+    ]
 
     # w/ while-loop:
     while next_time_step <= FINAL_TIME:
         print(f"Drake Real Time Rate: {simulator.get_actual_realtime_rate()}")
         realtime_rate_history.append(simulator.get_actual_realtime_rate())
+        
+        # Motion Plan Playback Data:
         motion_planner_history.append(driver_planner._full_state_trajectory)
         parser_history.append(driver_parser._current_trajectory)
         adversary_history.append(driver_adversary._state_output)
+        
+        # Regression Playback Data:
         fp_history.append(driver_regression._fp_sol)
         ls_history.append(driver_regression._ls_sol)
-        data_history.append(driver_regression._data)
+        bin_data_history.append(driver_regression._data)
+        s_history.append(driver_planner._s_tilde)
+        delta_history.append(driver_planner._delta)
+
+        # Basis Vector Playback Data:
+        raw_data_history.append(driver_regression.data[:-1, :])
+        label_history.append(driver_regression.data[-1, :])
+        projected_data_history.append(driver_regression._data_projected_origin)
+        basis_vector_history.append(driver_regression.basis_vector)
+
+        # Solve Time Data:
         solve_time.append(
             [
                 driver_planner._optimizer_time,
@@ -180,11 +218,58 @@ def main(argv=None):
             print(f"Exception Occurred...")
             driver_crazyswarm.execute_landing_sequence()
             break
-
+    
     # Land the Drone:
     driver_crazyswarm.execute_landing_sequence()
 
-    # Plot results:
+    shelve_list.shelve_list(
+        filename=shelve_filename, 
+        key_list=vars_to_shelve,
+        workspace_variable_names=dir(),
+        local_variables=locals(),
+    )
+
+    # Plot Basis Vector:
+    fig_basis, ax_basis = plt.subplots()
+    fig_basis.tight_layout()
+    plot_data, = ax_basis.plot([], [], color='black', marker='.', linestyle='None')
+    plot_proj, = ax_basis.plot([], [], color='blue', marker='.', linestyle='None')
+    ax_basis.axis('equal')
+    ax_basis.set(xlim=(-5, 5), ylim=(-5, 5))
+    ax_basis.set_xlabel('Relative Distance')
+    ax_basis.set_ylabel('Relative Velocity')  
+
+
+    # Animation
+    ax_basis.set_title('Basis Vector Learning:')
+    video_title = "hardware_basis_learning_playback"
+
+    # Setup Animation Writer:
+    dpi = 300
+    FPS = 20
+    simulation_size = len(realtime_rate_history)
+    sample_rate = int(1 / (dt * FPS))
+    writerObj = FFMpegWriter(fps=FPS)
+
+    # Plot and Create Animation:
+    with writerObj.saving(fig_basis, video_title+".mp4", dpi):
+        for i in range(0, simulation_size):
+            dt_realtime = dt * realtime_rate_history[i]
+            sample_rate = np.ceil(dt_realtime * FPS)
+
+            if sample_rate <= 1:
+                sample_rate = 1
+
+            for _ in range(0, int(sample_rate)):
+                # Update Plots:
+                plot_data.set_data(raw_data_history[i][0, :], raw_data_history[i][1, :])
+                plot_proj.set_data(projected_data_history[i][0, :], projected_data_history[i][1, :])
+                # Update Drawing:
+                fig_basis.canvas.draw()  # Update the figure with the new changes
+                # Grab and Save Frame:
+                writerObj.grab_frame()
+
+    # Plot Simulation Playback:
     fig_playback, ax_playback = plt.subplots()
     fig_playback.tight_layout(pad=2.5)
     planner_plot, = ax_playback.plot([], [], color='cornflowerblue', alpha=0.5, linewidth=1.0)
@@ -246,55 +331,58 @@ def main(argv=None):
                 # Grab and Save Frame:
                 writerObj.grab_frame()
 
-    # # Learning Framework:
-    # fig_regression, ax_regression = plt.subplots(2)
-    # fig_regression.tight_layout(pad=2.5)
+    # Learning Framework:
+    fig_regression, ax_regression = plt.subplots(2)
+    fig_regression.tight_layout(pad=2.5)
 
-    # data_plot, = ax_regression[0].plot([], [], color='black', marker='.', linestyle='None')
-    # fp, = ax_regression[0].plot([], [], color='red')
-    # ls, = ax_regression[1].plot([], [], color='red')
+    data_plot, = ax_regression[0].plot([], [], color='black', marker='.', linestyle='None')
+    fp, = ax_regression[0].plot([], [], color='red')
+    ls, = ax_regression[1].plot([], [], color='red')
+    dh, = ax_regression[1].plot([], [], color='black', marker='.', linestyle='None')
 
-    # # FP Plot:
-    # ax_regression[0].set_xlim([-1, 3])  # X Lim
-    # ax_regression[0].set_ylim([-1, 2])  # Y Lim
-    # ax_regression[0].set_xlabel('delta')  # X Label
-    # ax_regression[0].set_ylabel('r(delta)')  # Y Label
-    # # LS Plot:
-    # ax_regression[1].set_xlim([-1, 3])  # X Lim
-    # ax_regression[1].set_ylim([-2, 1])  # Y Lim
-    # ax_regression[1].set_xlabel('delta')  # X Label
-    # ax_regression[1].set_ylabel('s(delta)')  # Y Label
+    # FP Plot:
+    ax_regression[0].set_xlim([-1, 3])  # X Lim
+    ax_regression[0].set_ylim([-1, 2])  # Y Lim
+    ax_regression[0].set_xlabel('delta')  # X Label
+    ax_regression[0].set_ylabel('r(delta)')  # Y Label
+    # LS Plot:
+    ax_regression[1].set_xlim([-1, 3])  # X Lim
+    ax_regression[1].set_ylim([-2, 1])  # Y Lim
+    ax_regression[1].set_xlabel('delta')  # X Label
+    ax_regression[1].set_ylabel('s(delta)')  # Y Label
 
-    # # Animation
-    # ax_regression[0].set_title('Risk Learning Framework:')
-    # video_title = "hardware_risk_learning_regression"
+    # Animation
+    ax_regression[0].set_title('Risk Learning Framework:')
+    video_title = "hardware_risk_learning_regression"
 
-    # # Setup Animation Writer:
-    # dpi = 300
-    # FPS = 20
-    # simulation_size = len(realtime_rate_history)
-    # sample_rate = int(1 / (dt * FPS))
-    # writerObj = FFMpegWriter(fps=FPS)
+    # Setup Animation Writer:
+    dpi = 300
+    FPS = 20
+    simulation_size = len(realtime_rate_history)
+    sample_rate = int(1 / (dt * FPS))
+    writerObj = FFMpegWriter(fps=FPS)
 
-    # # Plot and Create Animation:
-    # with writerObj.saving(fig_regression, video_title+".mp4", dpi):
-    #     for i in range(0, simulation_size):
-    #         dt_realtime = dt * realtime_rate_history[i]
-    #         sample_rate = np.ceil(dt_realtime * FPS)
+    # Plot and Create Animation:
+    with writerObj.saving(fig_regression, video_title+".mp4", dpi):
+        for i in range(0, simulation_size):
+            dt_realtime = dt * realtime_rate_history[i]
+            sample_rate = np.ceil(dt_realtime * FPS)
 
-    #         if sample_rate <= 1:
-    #             sample_rate = 1
+            if sample_rate <= 1:
+                sample_rate = 1
 
-    #         for _ in range(0, int(sample_rate)):
-    #             # Plot FP:
-    #             data_plot.set_data(data_history[i][0, :], data_history[i][1, :])
-    #             fp.set_data(fp_history[i][0, :], fp_history[i][1, :])
-    #             # Plot LS:
-    #             ls.set_data(ls_history[i][0, :], ls_history[i][1, :])
-    #             # Update Drawing:
-    #             fig_regression.canvas.draw()  # Update the figure with the new changes
-    #             # Grab and Save Frame:
-    #             writerObj.grab_frame()
+            for _ in range(0, int(sample_rate)):
+                # Plot FP:
+                data_plot.set_data(bin_data_history[i][0, :], bin_data_history[i][1, :])
+                fp.set_data(fp_history[i][0, :], fp_history[i][1, :])
+                # Plot LS:
+                ls.set_data(ls_history[i][0, :], ls_history[i][1, :])
+                # Plot Delta:
+                dh.set_data(delta_history[i], s_history[i])
+                # Update Drawing:
+                fig_regression.canvas.draw()  # Update the figure with the new changes
+                # Grab and Save Frame:
+                writerObj.grab_frame()
 
 
 if __name__ == "__main__":
