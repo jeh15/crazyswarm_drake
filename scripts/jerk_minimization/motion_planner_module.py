@@ -59,12 +59,12 @@ class QuadraticProgram(LeafSystem):
         )
 
         self._state_bounds = jnp.asarray(
-            [2.0, 2.0, 0.075],
+            [2.0, 2.0, 0.3],
             dtype=float,
         )
 
         self._weights = jnp.asarray(
-            [100.0, 1.0, 1.0],
+            [100.0, 0.1, 100.0, 1.0],
             dtype=float,
         )
 
@@ -308,11 +308,14 @@ class QuadraticProgram(LeafSystem):
 
         return inequality_constraints
 
-    @partial(jit, static_argnums=(0,), static_argnames=['num_states', 'num_slack'])
+    @partial(jit, static_argnums=(0,), static_argnames=['mass', 'friction', 'dt', 'num_states', 'num_slack'])
     def _objective_function(
         self,
         q: jax.Array,
         w: jax.Array,
+        mass: float,
+        friction: float,
+        dt: float,
         num_states: int,
         num_slack: int,
     ) -> jnp.ndarray:
@@ -338,24 +341,20 @@ class QuadraticProgram(LeafSystem):
         # Risk Slack Variable:
         slack_variable = q[-1, :]
 
-        minimize_slack_position = w[0] * jnp.sum(slack_position ** 2, axis=0)
-        minimize_acceleration_effort = w[1] * jnp.sum(states_control ** 2, axis=0)
-        minimize_failure = -w[2] * jnp.sum(slack_variable, axis=0)
+        # Jerk Calculation:
+        # states_acceleration = (states_control - friction * states_velocity) / mass
+        # states_jerk = (states_acceleration[:, 1:] - states_acceleration[:, :-1]) / dt
+        control_jerk = (states_control[:, 1:] - states_control[:, :-1]) / dt
 
-        # minimize_slack_position = w[0] * jnp.trapz(
-        #     jnp.sum(slack_position ** 2, axis=0),
-        #     axis=0,
-        # )
-        # minimize_acceleration_effort = w[1] * jnp.trapz(
-        #     jnp.sum(states_control ** 2, axis=0),
-        #     axis=0,
-        # )
-        # minimize_failure = -w[2] * jnp.trapz(slack_variable, axis=0)
-
+        # Objective Function:
+        minimize_slack_position = w[0] * jnp.trapz(jnp.sum(slack_position ** 2, axis=0), axis=0)
+        minimize_control = w[1] * jnp.trapz(jnp.sum(states_control ** 2, axis=0), axis=0)
+        minimize_control_jerk = w[2] * jnp.trapz(jnp.sum(control_jerk ** 2, axis=0), axis=0)
+        minimize_failure = -w[3] * jnp.trapz(slack_variable, axis=0)
         objective_function = jnp.sum(
             jnp.hstack(
-                [minimize_slack_position, minimize_acceleration_effort, minimize_failure],
-            ),
+                [minimize_slack_position, minimize_control, minimize_control_jerk, minimize_failure],
+            ), 
             axis=0,
         )
 
@@ -428,6 +427,9 @@ class QuadraticProgram(LeafSystem):
         self.objective_func = lambda x: self._objective_function(
             q=x,
             w=self._weights,
+            mass=self._mass,
+            friction=self._friction,
+            dt=self._dt,
             num_states=self._full_size,
             num_slack=self._num_slack,
         )
@@ -465,8 +467,6 @@ class QuadraticProgram(LeafSystem):
         self._f_fn = jax.jit(jacfwd(self.objective_func))
         H = self._H_fn(self._setpoint)
         f = self._f_fn(self._setpoint)
-
-        pdb.set_trace()
 
         # Construct gurobi Problem:
         self.prog = mp.MathematicalProgram()

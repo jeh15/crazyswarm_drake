@@ -38,6 +38,7 @@ class QuadraticProgram(LeafSystem):
         self._dt = config.dt
         self._time_vector = np.linspace(0, self._time_horizon, self._nodes)
         self._spline_resolution = config.spline_resolution
+        self._sample_nodes = config.sample_nodes
 
         # Constants:
         self._mass = 0.027  # Actual Crazyflie Mass
@@ -59,14 +60,17 @@ class QuadraticProgram(LeafSystem):
         )
 
         self._state_bounds = jnp.asarray(
-            [2.0, 2.0, 0.075],
+            [2.0, 2.0, 0.2],
             dtype=float,
         )
 
         self._weights = jnp.asarray(
-            [100.0, 1.0, 1.0],
+            [100.0, 1.0, 100.0, 1.0],
             dtype=float,
         )
+
+        # We skip the first value:
+        self._weight_vector = (jnp.linspace(1.0, 0.0, self._sample_nodes))[1:]
 
         self.opt_var_lb = np.concatenate(
             [
@@ -134,6 +138,13 @@ class QuadraticProgram(LeafSystem):
             "avoidance_risk_constraints",
             self._spline_resolution * 2,
         ).get_index()
+
+        # Continuity Input from Parser:
+        self.continuity_input = self.DeclareVectorInputPort(
+            "continuity_input",
+            self._sample_nodes * self._full_size,
+        ).get_index()
+
 
         """ Declare Output: """
         self.DeclareVectorOutputPort(
@@ -308,13 +319,17 @@ class QuadraticProgram(LeafSystem):
 
         return inequality_constraints
 
-    @partial(jit, static_argnums=(0,), static_argnames=['num_states', 'num_slack'])
+    @partial(jit, static_argnums=(0,), static_argnames=['dt', 'num_states', 'num_slack', 'num_continuity'])
     def _objective_function(
         self,
         q: jax.Array,
+        q_previous: jax.Array,
         w: jax.Array,
+        w_vector: jax.Array,
+        dt: float,
         num_states: int,
         num_slack: int,
+        num_continuity: int,
     ) -> jnp.ndarray:
         print(f"Objective Compiled")
         """
@@ -338,24 +353,29 @@ class QuadraticProgram(LeafSystem):
         # Risk Slack Variable:
         slack_variable = q[-1, :]
 
-        minimize_slack_position = w[0] * jnp.sum(slack_position ** 2, axis=0)
-        minimize_acceleration_effort = w[1] * jnp.sum(states_control ** 2, axis=0)
-        minimize_failure = -w[2] * jnp.sum(slack_variable, axis=0)
+        # Jerk Calculation:
+        control_jerk = (states_control[:, 1:] - states_control[:, :-1]) / dt
 
-        # minimize_slack_position = w[0] * jnp.trapz(
-        #     jnp.sum(slack_position ** 2, axis=0),
-        #     axis=0,
-        # )
-        # minimize_acceleration_effort = w[1] * jnp.trapz(
-        #     jnp.sum(states_control ** 2, axis=0),
-        #     axis=0,
-        # )
-        # minimize_failure = -w[2] * jnp.trapz(slack_variable, axis=0)
+        # Continuity Cost: (first input is redundant of predicted current position)
+        continuity = q[:6, 1:num_continuity] - q_previous[:, 1:num_continuity]
+
+        # Objective Function:
+        minimize_slack_position = w[0] * jnp.trapz(jnp.sum(slack_position ** 2, axis=0), axis=0)
+        minimize_control = w[1] * jnp.trapz(jnp.sum(states_control ** 2, axis=0), axis=0)
+        minimize_control_jerk = w[2] * jnp.trapz(jnp.sum(control_jerk ** 2, axis=0), axis=0)
+        minimize_failure = -w[3] * jnp.trapz(slack_variable, axis=0)
+        enforce_continuity = jnp.trapz(
+            jnp.sum(
+                w_vector * (continuity ** 2),
+                axis=0,
+            ),
+            axis=0,
+        )
 
         objective_function = jnp.sum(
             jnp.hstack(
-                [minimize_slack_position, minimize_acceleration_effort, minimize_failure],
-            ),
+                [enforce_continuity, minimize_slack_position, minimize_control, minimize_control_jerk, minimize_failure],
+            ), 
             axis=0,
         )
 
@@ -402,6 +422,11 @@ class QuadraticProgram(LeafSystem):
         self._halfspace_vectors = halfspace_vectors
         self._halfspace_ratios = halfspace_ratios
 
+        # Get predicted previous trajectory for continuity: (First input is redundant of predicted current position)
+        previous_trajectory = np.asarray(
+            self.get_input_port(self.continuity_input).Eval(context)
+        ).reshape((self._full_size, -1))
+
         # Isolate Functions to Lambda Functions and wrap them in staticmethod:
         self.equality_func = lambda x, ic: self._equality_constraints(
             q=x,
@@ -425,11 +450,15 @@ class QuadraticProgram(LeafSystem):
             num_slack=self._num_slack,
         )
 
-        self.objective_func = lambda x: self._objective_function(
+        self.objective_func = lambda x, y: self._objective_function(
             q=x,
+            q_previous=y,
             w=self._weights,
+            w_vector=self._weight_vector,
+            dt=self._dt,
             num_states=self._full_size,
             num_slack=self._num_slack,
+            num_continuity=self._sample_nodes,
         )
 
         # Compute A and b matricies for equality constraints:
@@ -463,10 +492,8 @@ class QuadraticProgram(LeafSystem):
         # Compute H and f matrcies for objective function:
         self._H_fn = jax.jit(jacfwd(jacrev(self.objective_func)))
         self._f_fn = jax.jit(jacfwd(self.objective_func))
-        H = self._H_fn(self._setpoint)
-        f = self._f_fn(self._setpoint)
-
-        pdb.set_trace()
+        H = self._H_fn(self._setpoint, previous_trajectory)
+        f = self._f_fn(self._setpoint, previous_trajectory)
 
         # Construct gurobi Problem:
         self.prog = mp.MathematicalProgram()
@@ -561,6 +588,11 @@ class QuadraticProgram(LeafSystem):
         self._halfspace_vectors = halfspace_vectors
         self._halfspace_ratios = halfspace_ratios
 
+        # Get predicted previous trajectory for continuity: (First input is redundant of predicted current position)
+        previous_trajectory = np.asarray(
+            self.get_input_port(self.continuity_input).Eval(context)
+        ).reshape((self._full_size, -1))
+
         # Compute A and b matricies for equality constraints:
         A_eq = self._A_eq_fn(self._setpoint, initial_conditions)
         b_eq = -self.equality_func(self._setpoint, initial_conditions)
@@ -588,8 +620,8 @@ class QuadraticProgram(LeafSystem):
         b_ineq_lb[:] = np.NINF
 
         # Compute H and f matrcies for objective function:
-        H = self._H_fn(self._setpoint)
-        f = self._f_fn(self._setpoint)
+        H = self._H_fn(self._setpoint, previous_trajectory)
+        f = self._f_fn(self._setpoint, previous_trajectory)
 
         # Update Constraint and Objective Function:
         self.equality_constraint.evaluator().UpdateCoefficients(
