@@ -35,9 +35,10 @@ class QuadraticProgram(LeafSystem):
         self._nodes = config.nodes
         self._time_horizon = config.time_horizon
         self._state_dimension = config.state_dimension
-        self._dt = config.dt
-        self._time_vector = np.linspace(0, self._time_horizon, self._nodes)
+        self._dt = config.dt_vector
+        self._time_vector = config.time_vector
         self._spline_resolution = config.spline_resolution
+        self._unit_time_step = config.sample_rate
 
         # Constants:
         self._mass = 0.027  # Actual Crazyflie Mass
@@ -45,6 +46,7 @@ class QuadraticProgram(LeafSystem):
         self._tol = 1e-05
         self._solve_flag = 0
         self._area_limit = jnp.array([config.area_bounds, config.area_bounds], dtype=float)
+        self._time_vector_midpoint = self._time_vector[:-1] + (self._time_vector[1:] - self._time_vector[:-1]) / 2
 
         # State Size for Optimization: (Seems specific to this implementation should not be a config param)
         self._state_size = self._state_dimension * 2
@@ -59,7 +61,7 @@ class QuadraticProgram(LeafSystem):
         )
 
         self._state_bounds = jnp.asarray(
-            [2.0, 2.0, 0.2],
+            [2.0, 2.0, 1.0],
             dtype=float,
         )
 
@@ -174,14 +176,14 @@ class QuadraticProgram(LeafSystem):
         output_motion_plan.SetFromVector(a_value.get_mutable_value())
 
     # Jax Methods:
-    @partial(jit, static_argnums=(0,), static_argnames=['mass', 'friction', 'dt', 'num_states', 'num_slack'])
+    @partial(jit, static_argnums=(0,), static_argnames=['mass', 'friction', 'num_states', 'num_slack'])
     def _equality_constraints(
         self,
         q: jax.Array,
         initial_conditions: jax.Array,
+        dt: jax.Array,
         mass: float,
         friction: float,
-        dt: float,
         num_states: int,
         num_slack: int,
     ) -> jnp.ndarray:
@@ -192,8 +194,8 @@ class QuadraticProgram(LeafSystem):
         """
 
         # Euler Collocation:
-        def _collocation_constraint(x: jax.Array, dt: float) -> jnp.ndarray:
-            collocation = x[0][1:] - x[0][:-1] - x[1][:-1] * dt
+        def _collocation_constraint(x: jax.Array, dt: jax.Array) -> jnp.ndarray:
+            collocation = x[0][1:] - x[0][:-1] - x[1][:-1] * dt[:]
             return collocation
 
         """
@@ -308,14 +310,15 @@ class QuadraticProgram(LeafSystem):
 
         return inequality_constraints
 
-    @partial(jit, static_argnums=(0,), static_argnames=['mass', 'friction', 'dt', 'num_states', 'num_slack'])
+    @partial(jit, static_argnums=(0,), static_argnames=['unit_time_step', 'num_states', 'num_slack'])
     def _objective_function(
         self,
         q: jax.Array,
         w: jax.Array,
-        mass: float,
-        friction: float,
-        dt: float,
+        dt: jax.Array,
+        time_vector: jax.Array,
+        time_vector_midpoint: jax.Array,
+        unit_time_step: float,
         num_states: int,
         num_slack: int,
     ) -> jnp.ndarray:
@@ -342,15 +345,29 @@ class QuadraticProgram(LeafSystem):
         slack_variable = q[-1, :]
 
         # Jerk Calculation:
-        # states_acceleration = (states_control - friction * states_velocity) / mass
-        # states_jerk = (states_acceleration[:, 1:] - states_acceleration[:, :-1]) / dt
         control_jerk = (states_control[:, 1:] - states_control[:, :-1]) / dt
 
         # Objective Function:
-        minimize_slack_position = w[0] * jnp.trapz(jnp.sum(slack_position ** 2, axis=0), axis=0)
-        minimize_control = w[1] * jnp.trapz(jnp.sum(states_control ** 2, axis=0), axis=0)
-        minimize_control_jerk = w[2] * jnp.trapz(jnp.sum(control_jerk ** 2, axis=0), axis=0)
-        minimize_failure = -w[3] * jnp.trapz(slack_variable, axis=0)
+        minimize_slack_position = w[0] * jnp.trapz(
+            y=jnp.sum(slack_position ** 2, axis=0), 
+            x=time_vector,
+            axis=0,
+        )
+        minimize_control = w[1] * jnp.trapz(
+            y=jnp.sum(states_control ** 2, axis=0),
+            x=time_vector,
+            axis=0,
+        )
+        minimize_control_jerk = w[2] * jnp.trapz(
+            y=jnp.sum(control_jerk ** 2, axis=0),
+            x=time_vector_midpoint,
+            axis=0,
+        )
+        minimize_failure = -w[3] * jnp.trapz(
+            y=slack_variable / unit_time_step,
+            x=time_vector,
+            axis=0,
+            )
         objective_function = jnp.sum(
             jnp.hstack(
                 [minimize_slack_position, minimize_control, minimize_control_jerk, minimize_failure],
@@ -405,9 +422,9 @@ class QuadraticProgram(LeafSystem):
         self.equality_func = lambda x, ic: self._equality_constraints(
             q=x,
             initial_conditions=ic,
+            dt=self._dt,
             mass=self._mass,
             friction=self._friction,
-            dt=self._dt,
             num_states=self._full_size,
             num_slack=self._num_slack,
         )
@@ -427,9 +444,10 @@ class QuadraticProgram(LeafSystem):
         self.objective_func = lambda x: self._objective_function(
             q=x,
             w=self._weights,
-            mass=self._mass,
-            friction=self._friction,
             dt=self._dt,
+            time_vector=self._time_vector,
+            time_vector_midpoint=self._time_vector_midpoint,
+            unit_time_step=self._unit_time_step,
             num_states=self._full_size,
             num_slack=self._num_slack,
         )

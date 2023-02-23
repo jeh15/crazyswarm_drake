@@ -32,11 +32,14 @@ def get_config() -> ml_collections.ConfigDict():
     config.crazyswarm_rate = 1.0 / 100.0
     config.adversary_rate = 1.0 / 100.0
     # Model Parameters:
-    config.nodes = 51
+    config.nodes = 21
     config.state_dimension = 2
     config.time_horizon = 2.0
-    config.dt = config.time_horizon / (config.nodes - 1.0)
+    config.time_vector = np.power(np.linspace(0, config.time_horizon, config.nodes), np.e)
+    config.dt_vector = config.time_vector[1:] - config.time_vector[:-1]
     config.area_bounds = 1.5
+    # Evaluation Sampling Time:
+    config.sample_rate = np.amax(config.dt_vector)
     # Spline Parameters:
     config.spline_resolution = 7
     config.bin_resolution = 51
@@ -75,7 +78,7 @@ def main(argv=None):
     driver_tracking_learner.evaluate = evaluator_extension.tracking_evaluation
     tracking_learner = builder.AddSystem(driver_tracking_learner)
 
-    avoid_radius = 0.3
+    avoid_radius = 0.5
     driver_avoidance_learner = learning_framework.RiskLearning(config=params, failure_radius=avoid_radius)
     driver_avoidance_learner.evaluate = evaluator_extension.avoidance_evaluation
     avoidance_learner = builder.AddSystem(driver_avoidance_learner)
