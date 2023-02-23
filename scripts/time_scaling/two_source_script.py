@@ -28,18 +28,18 @@ import shelve_list
 def get_config() -> ml_collections.ConfigDict():
     config = ml_collections.ConfigDict()
     # Control Rates:
-    config.motion_planner_rate = 1.0 / 20.0
+    config.motion_planner_rate = 1.0 / 40.0
     config.crazyswarm_rate = 1.0 / 100.0
     config.adversary_rate = 1.0 / 100.0
     # Model Parameters:
     config.nodes = 21
     config.state_dimension = 2
-    config.time_horizon = 2.0
+    config.time_horizon = 1.0
     config.time_vector = np.power(np.linspace(0, config.time_horizon, config.nodes), np.e)
     config.dt_vector = config.time_vector[1:] - config.time_vector[:-1]
     config.area_bounds = 1.5
     # Evaluation Sampling Time:
-    config.sample_rate = np.amax(config.dt_vector)
+    config.sample_rate = config.crazyswarm_rate
     # Spline Parameters:
     config.spline_resolution = 7
     config.bin_resolution = 51
@@ -169,7 +169,7 @@ def main(argv=None):
     simulator.Initialize()
 
     # Simulate System:
-    FINAL_TIME = 20.0
+    FINAL_TIME = 40.0
     dt = 0.1
     next_time_step = dt
 
@@ -237,6 +237,7 @@ def main(argv=None):
     fig_playback, ax_playback = plt.subplots()
     fig_playback.tight_layout(pad=2.5)
     planner_plot, = ax_playback.plot([], [], color='cornflowerblue', alpha=0.5, linewidth=1.0)
+    node_plot, = ax_playback.plot([], [], color='cornflowerblue', marker='.', linewidth=0.5, linestyle='None')
     # Simulation Plot:
     ax_playback.axis('equal')
     ax_playback.set(xlim=(-5, 5), ylim=(-5, 5))
@@ -297,6 +298,7 @@ def main(argv=None):
                 motion_plan = np.reshape(motion_planner_history[i], (6, -1))
                 agn.center = position[0], position[1]
                 planner_plot.set_data(motion_plan[0, :], motion_plan[1, :])
+                node_plot.set_data(motion_plan[0, :], motion_plan[1, :])
                 # Update Drawing:
                 fig_playback.canvas.draw()  # Update the figure with the new changes
                 # Grab and Save Frame:

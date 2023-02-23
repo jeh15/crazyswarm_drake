@@ -27,7 +27,7 @@ class Adversary(LeafSystem):
         self._state_dimension = config.state_dimension
         self._full_size = self._state_dimension * 3    # (x, y, dx, dy, ddx, ddy)
         self.previous_position = np.zeros((3,), dtype=float)
-        self.noise_threshold = 0.1
+        self.noise_threshold = 0.15
 
         # Debug Variables:
         self._target_position = np.zeros((3,), dtype=float)
