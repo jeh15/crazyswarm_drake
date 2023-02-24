@@ -238,7 +238,7 @@ def main(argv=None):
     fig_playback, ax_playback = plt.subplots()
     fig_playback.tight_layout(pad=2.5)
     planner_plot, = ax_playback.plot([], [], color='cornflowerblue', alpha=0.5, linewidth=1.0)
-    node_plot, = ax_playback.plot([], [], color='cornflowerblue', marker='.', linewidth=0.5, linestyle='None')
+    node_plot, = ax_playback.plot([], [], marker='.', markeredgecolor='black', markerfacecolor='black', markersize=0.25, linestyle='None')
     # Simulation Plot:
     ax_playback.axis('equal')
     ax_playback.set(xlim=(-5, 5), ylim=(-5, 5))

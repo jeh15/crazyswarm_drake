@@ -52,7 +52,7 @@ class QuadraticProgram(LeafSystem):
         self._state_size = self._state_dimension * 2
         self._full_size = self._state_dimension * 3
         self._num_state_slack = 2
-        self._num_risk_slack = 1
+        self._num_risk_slack = 2
         self._num_slack = self._num_state_slack + self._num_risk_slack
         # Size of design variable vector:
         self._setpoint = jnp.zeros(
@@ -61,16 +61,39 @@ class QuadraticProgram(LeafSystem):
         )
 
         self._state_bounds = jnp.asarray(
-            [2.0, 2.0, 0.2],
+            [2.0, 2.0, 0.15],
+            dtype=float,
+        )
+        self._weights = jnp.asarray(
+            [100.0, 10.0, 1000.0, 1.0],
             dtype=float,
         )
 
-        self._weights = jnp.asarray(
-            [100.0, 1.0, 1000.0, 1.0],
-            dtype=float,
-        )
+        # Decent:
+        # self._state_bounds = jnp.asarray(
+        #     [2.0, 2.0, 0.15],
+        #     dtype=float,
+        # )
+        # self._weights = jnp.asarray(
+        #     [100.0, 1.0, 100.0, 1.0],
+        #     dtype=float,
+        # )
+
+        # Agile bit shaky
+        # self._state_bounds = jnp.asarray(
+        #     [2.0, 2.0, 0.2],
+        #     dtype=float,
+        # )
+        # self._weights = jnp.asarray(
+        #     [100.0, 10.0, 10000.0, 1.0],
+        #     dtype=float,
+        # )
 
         # Good but shaky:
+        # self._state_bounds = jnp.asarray(
+        #     [2.0, 2.0, 0.2],
+        #     dtype=float,
+        # )
         # self._weights = jnp.asarray(
         #     [100.0, 10.0, 1000.0, 1.0],
         #     dtype=float,
@@ -280,7 +303,7 @@ class QuadraticProgram(LeafSystem):
         slack_position = q[6:8, :]
 
         # Risk Slack Variable:
-        slack_variable = q[-1, :]
+        slack_variable = q[-2:, :]
 
         # Area Boundary Constraint
         area_bound = jnp.vstack(
@@ -298,10 +321,10 @@ class QuadraticProgram(LeafSystem):
         linearized_avoidance_distance = jnp.einsum('ij,ij->j', avoidance_distance, halfspace_vectors[2:, :]) * halfspace_ratios[1, :]
         # rfun[i, j] = s[j] - (m[i] * x[j] + b[i])
         tracker_rfun = (
-            -((jnp.einsum('i,j->ij', slope[:, 0], linearized_tracker_distance)) + intercept[:, 0].reshape(intercept.shape[0], -1)) + slack_variable
+            -((jnp.einsum('i,j->ij', slope[:, 0], linearized_tracker_distance)) + intercept[:, 0].reshape(intercept.shape[0], -1)) + slack_variable[0, :]
         ).flatten()
         avoidance_rfun = (
-            -((jnp.einsum('i,j->ij', slope[:, 1], linearized_avoidance_distance)) + intercept[:, 1].reshape(intercept.shape[0], -1)) + slack_variable
+            -((jnp.einsum('i,j->ij', slope[:, 1], linearized_avoidance_distance)) + intercept[:, 1].reshape(intercept.shape[0], -1)) + slack_variable[1, :]
         ).flatten()
 
         # Concatenate the constraints:
@@ -348,7 +371,7 @@ class QuadraticProgram(LeafSystem):
         slack_position = q[6:8, :]
 
         # Risk Slack Variable:
-        slack_variable = q[-1, :]
+        slack_variable = q[-2:, :]
 
         # Jerk Calculation:
         control_jerk = (states_control[:, 1:] - states_control[:, :-1]) / dt
@@ -369,14 +392,25 @@ class QuadraticProgram(LeafSystem):
             x=time_vector_midpoint,
             axis=0,
         )
-        minimize_failure = -w[3] * jnp.trapz(
-            y=slack_variable / unit_time_step,
+        minimize_track_failure = -w[3] * jnp.trapz(
+            y=slack_variable[0, :] / unit_time_step,
             x=time_vector,
             axis=0,
-            )
+        )
+        minimize_avoid_failure = -w[3] * jnp.trapz(
+            y=slack_variable[1, :] / unit_time_step,
+            x=time_vector,
+            axis=0,
+        )
         objective_function = jnp.sum(
             jnp.hstack(
-                [minimize_slack_position, minimize_control, minimize_control_jerk, minimize_failure],
+                [
+                    minimize_slack_position, 
+                    minimize_control, 
+                    minimize_control_jerk, 
+                    minimize_track_failure,
+                    minimize_avoid_failure,
+                ],
             ), 
             axis=0,
         )
@@ -675,7 +709,8 @@ class QuadraticProgram(LeafSystem):
         uy_sol = opt_sol[5, :]
         sx_sol = opt_sol[6, :]
         sy_sol = opt_sol[7, :]
-        s_sol = opt_sol[8, :]
+        s1_sol = opt_sol[8, :]
+        s2_sol = opt_sol[9, :]
 
         ddx = self.compute_acceleration(ux_sol, dx_sol)
         ddy = self.compute_acceleration(uy_sol, dy_sol)
@@ -695,20 +730,10 @@ class QuadraticProgram(LeafSystem):
                 dx_sol, dy_sol,
                 ux_sol, uy_sol,
                 sx_sol, sy_sol,
-                s_sol,
+                s1_sol, s2_sol,
             ], 
             axis=0,
         )
-
-        # self._s_tilde= s_sol
-        # self._delta, self._linearized_distance, self._linearized_velocity = self.get_risk_source(
-        #     self._adversary_trajectory,
-        #     opt_sol[:2, :],
-        #     opt_sol[3:5, :],
-        #     self._halfspace_vectors,
-        #     self._halfspace_ratios,
-        #     self._basis_vector,
-        # )
 
         # How can I clean this up?
         a_state = context.get_mutable_abstract_state(self.state_index)
@@ -745,14 +770,4 @@ class QuadraticProgram(LeafSystem):
             where=halfspace_avoider_squared!=0.0,
         )
         return np.vstack([predicted_tracker_trajectory, predicted_avoider_trajectory]), np.vstack([halfspace_tracker, halfspace_avoider]), np.vstack([halfspace_avoider_ratio, halfspace_tracker_ratio])
-
-    def get_risk_source(self, adversary_trajectory, states_position, states_velocity, halfspace_vectors, halfspace_ratios, basis_vector):
-        # 2. Risk Constraints:
-        relative_distance = adversary_trajectory - states_position
-        relative_velocity = adversary_trajectory - states_velocity
-        # Linearized risk source approximations:
-        linearized_distance = jnp.einsum('ij,ij->j', relative_distance, halfspace_vectors[:2, :]) * halfspace_ratios[0, :]
-        linearized_velocity = jnp.einsum('ij,ij->j', relative_velocity, halfspace_vectors[2:, :]) * halfspace_ratios[1, :]
-        # Project risk sources onto basis vector:
-        delta = jnp.einsum('ij,i->j', jnp.vstack([linearized_distance, linearized_velocity]), basis_vector)
-        return delta, linearized_distance, linearized_velocity
+    
