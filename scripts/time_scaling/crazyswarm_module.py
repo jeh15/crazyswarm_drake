@@ -147,7 +147,6 @@ class CrazyswarmSystem(LeafSystem):
     def execute_landing_sequence(self):
         # Slow Down Drone to 0 Velocity:
         self.ramp_down()
-        self.timeHelper.sleep(3.0)
         # Stop Motors:
         self.cf.cmdStop()
 

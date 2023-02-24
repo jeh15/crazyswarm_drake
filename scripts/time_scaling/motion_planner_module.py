@@ -66,9 +66,15 @@ class QuadraticProgram(LeafSystem):
         )
 
         self._weights = jnp.asarray(
-            [100.0, 100.0, 1000.0, 1.0],
+            [100.0, 1.0, 1000.0, 1.0],
             dtype=float,
         )
+
+        # Good but shaky:
+        # self._weights = jnp.asarray(
+        #     [100.0, 10.0, 1000.0, 1.0],
+        #     dtype=float,
+        # )
 
         self.opt_var_lb = np.concatenate(
             [

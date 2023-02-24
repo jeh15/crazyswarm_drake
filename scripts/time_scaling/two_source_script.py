@@ -231,6 +231,7 @@ def main(argv=None):
             break
 
     # Land the Drone:
+    driver_adversary.execute_landing_sequence()
     driver_crazyswarm.execute_landing_sequence()
 
     # Plot results:

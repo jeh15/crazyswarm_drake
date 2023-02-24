@@ -181,6 +181,7 @@ class Adversary(LeafSystem):
             self._P = self._P_limt
             self.saturation_limit = self.saturation_max_limit
 
+    # Hacky way to filter out random VICON blips:
     def filter(self, position, velocity):
         magnitude = np.linalg.norm(position[:2] - self.previous_position[:2])
         if magnitude > self.noise_threshold:
@@ -188,6 +189,29 @@ class Adversary(LeafSystem):
             velocity = self.previous_velocity
         return position, velocity
 
+    # Helper Function to Slow Drone Down:
+    def ramp_down(self):
+        def ramp_down_vector(x: np.ndarray, num_steps: int) -> np.ndarray:
+            return np.linspace(x, np.zeros((x.size,)), num_steps)
+        position = copy.deepcopy(self.cf.position())
+        steps = 101
+        velocity = self.velocity
+        velocity_vector = ramp_down_vector(velocity, steps)
+        position_vector = position + velocity_vector * self._CONTROL_RATE
+        for position in position_vector:
+            self.cf.cmdPosition(
+                pos=position,
+                yaw=0.0,
+            )
+            self.timeHelper.sleep(self._CONTROL_RATE)
+
+    # Landing Sequence:
+    def execute_landing_sequence(self):
+        # Slow Down Drone to 0 Velocity:
+        self.ramp_down()
+        # Stop Motors:
+        self.cf.cmdStop()
+    
     def initialize_driver(self):
         # ROS Subscriber Callback: Estimated Velocity and Acceleration
         def subscriber_callback(data):
