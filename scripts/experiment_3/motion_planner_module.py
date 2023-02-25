@@ -39,6 +39,7 @@ class QuadraticProgram(LeafSystem):
         self._time_vector = config.time_vector
         self._spline_resolution = config.spline_resolution
         self._unit_time_step = config.sample_rate
+        self._basis_vector_dim = config.candidate_sources_dimension
 
         # Constants:
         self._mass = 0.027  # Actual Crazyflie Mass
@@ -64,40 +65,11 @@ class QuadraticProgram(LeafSystem):
             [2.0, 2.0, 0.2],
             dtype=float,
         )
+
         self._weights = jnp.asarray(
             [1000.0, 10.0, 1000.0, 1.0],
             dtype=float,
         )
-
-        # Decent:
-        # self._state_bounds = jnp.asarray(
-        #     [2.0, 2.0, 0.2],
-        #     dtype=float,
-        # )
-        # self._weights = jnp.asarray(
-        #     [1000.0, 10.0, 1000.0, 1.0],
-        #     dtype=float,
-        # )
-
-        # Agile bit shaky
-        # self._state_bounds = jnp.asarray(
-        #     [2.0, 2.0, 0.2],
-        #     dtype=float,
-        # )
-        # self._weights = jnp.asarray(
-        #     [100.0, 10.0, 10000.0, 1.0],
-        #     dtype=float,
-        # )
-
-        # Good but shaky:
-        # self._state_bounds = jnp.asarray(
-        #     [2.0, 2.0, 0.2],
-        #     dtype=float,
-        # )
-        # self._weights = jnp.asarray(
-        #     [100.0, 10.0, 1000.0, 1.0],
-        #     dtype=float,
-        # )
 
         self.opt_var_lb = np.concatenate(
             [
@@ -144,16 +116,22 @@ class QuadraticProgram(LeafSystem):
             9,
         ).get_index()
 
-        # Adversary states::
-        self.avoider_adversary_states_input = self.DeclareVectorInputPort(
-            "avoider_adversary_states",
+        # Current Obstacle States from CrazySwarm: (x, y, z, dx, dy, dz)
+        self.obstacle_states_input = self.DeclareVectorInputPort(
+            "obstacle_states",
             self._full_size,
         ).get_index()
 
         # Updated Constraints from Learning Framework: (slope, intercept)
-        self.avoidance_constraint_input = self.DeclareVectorInputPort(
-            "avoidance_risk_constraints",
+        self.constraint_input = self.DeclareVectorInputPort(
+            "risk_constraints",
             self._spline_resolution * 2,
+        ).get_index()
+
+        # Basis Vector from Learning Framework:
+        self.basis_vector_input = self.DeclareVectorInputPort(
+            "basis_vector",
+            self._basis_vector_dim,
         ).get_index()
 
         """ Declare Output: """
@@ -269,6 +247,7 @@ class QuadraticProgram(LeafSystem):
         adversary_trajectory: jax.Array,
         halfspace_vectors: jax.Array,
         halfspace_ratios: jax.Array,
+        basis_vector: jax.Array,
         slope: jax.Array,
         intercept: jax.Array,
         position_limit: jax.Array,
@@ -293,7 +272,7 @@ class QuadraticProgram(LeafSystem):
         slack_position = q[6:8, :]
 
         # Risk Slack Variable:
-        slack_variable = q[-1:, :]
+        slack_variable = q[-1, :]
 
         # Area Boundary Constraint
         area_bound = jnp.vstack(
@@ -304,20 +283,24 @@ class QuadraticProgram(LeafSystem):
         ).flatten()
 
         # 2. Risk Constraints:
-        avoidance_distance = adversary_trajectory[:2, :] - states_position
+        relative_distance = adversary_trajectory[:2, :] - states_position
+        relative_velocity = adversary_trajectory[2:, :] - states_velocity
+
         # Linearized risk source approximations:
-        linearized_avoidance_distance = jnp.einsum('ij,ij->j', avoidance_distance, halfspace_vectors) * halfspace_ratios
+        linearized_distance = jnp.einsum('ij,ij->j', relative_distance, halfspace_vectors[:2, :]) * halfspace_ratios[0, :]
+        linearized_velocity = jnp.einsum('ij,ij->j', relative_velocity, halfspace_vectors[2:, :]) * halfspace_ratios[1, :]
+        # Project risk sources onto basis vector:
+        delta = jnp.einsum('ij,i->j', jnp.vstack([linearized_distance, linearized_velocity]), basis_vector)
         # rfun[i, j] = s[j] - (m[i] * x[j] + b[i])
-        # TODO(jeh15): slope and intercept no longer need to be indexed....
-        avoidance_rfun = (
-            -((jnp.einsum('i,j->ij', slope[:, 0], linearized_avoidance_distance)) + intercept[:, 0].reshape(intercept.shape[0], -1)) + slack_variable
+        rfun = (
+            -((jnp.einsum('i,j->ij', slope[:, 0], delta)) + intercept[:, 0].reshape(intercept.shape[0], -1)) + slack_variable
         ).flatten()
 
         # Concatenate the constraints:
         inequality_constraints = jnp.concatenate(
             [
                 area_bound,
-                avoidance_rfun,
+                rfun,
             ],
             axis=0,
         )
@@ -377,8 +360,7 @@ class QuadraticProgram(LeafSystem):
             x=time_vector_midpoint,
             axis=0,
         )
-
-        minimize_avoid_failure = -w[3] * jnp.trapz(
+        minimize_failure = -w[3] * jnp.trapz(
             y=slack_variable / unit_time_step,
             x=time_vector,
             axis=0,
@@ -389,7 +371,7 @@ class QuadraticProgram(LeafSystem):
                     minimize_slack_position, 
                     minimize_control, 
                     minimize_control_jerk, 
-                    minimize_avoid_failure,
+                    minimize_failure,
                 ],
             ), 
             axis=0,
@@ -414,14 +396,17 @@ class QuadraticProgram(LeafSystem):
         initial_conditions = np.asarray(initial_conditions)
 
         # Update Risk Constraints:
-        avoidance_slope, avoidance_intercept = np.hsplit(
+        risk_slope, risk_intercept = np.hsplit(
             np.asarray(
-                self.get_input_port(self.avoidance_constraint_input).Eval(context)
+                self.get_input_port(self.constraint_input).Eval(context)
             ).reshape((self._spline_resolution, -1)),
             2,
         )
-        risk_slopes = avoidance_slope
-        risk_intercepts = avoidance_intercept
+
+        # Update Basis Vector:
+        basis_vector = np.asarray(
+            self.get_input_port(self.basis_vector_input).Eval(context)
+        )
 
         # Calculate halfspace vectors for linearization:
         adversary_trajectory, halfspace_vectors, halfspace_ratios = self.get_halfspace_vector(context)
@@ -430,6 +415,7 @@ class QuadraticProgram(LeafSystem):
         self._adversary_trajectory =  adversary_trajectory
         self._halfspace_vectors = halfspace_vectors
         self._halfspace_ratios = halfspace_ratios
+        self._basis_vector = basis_vector
 
         # Isolate Functions to Lambda Functions and wrap them in staticmethod:
         self.equality_func = lambda x, ic: self._equality_constraints(
@@ -442,11 +428,12 @@ class QuadraticProgram(LeafSystem):
             num_slack=self._num_slack,
         )
 
-        self.inequality_func = lambda x, y, n, r, m, b: self._inequality_constraints(
+        self.inequality_func = lambda x, y, n, r, v, m, b: self._inequality_constraints(
             q=x,
             adversary_trajectory=y,
             halfspace_vectors=n,
             halfspace_ratios=r,
+            basis_vector=v,
             slope=m,
             intercept=b,
             position_limit=self._area_limit,
@@ -477,16 +464,18 @@ class QuadraticProgram(LeafSystem):
             adversary_trajectory,
             halfspace_vectors,
             halfspace_ratios,
-            risk_slopes,
-            risk_intercepts,
+            basis_vector,
+            risk_slope,
+            risk_intercept,
         )
         b_ineq_ub = -self.inequality_func(
             self._setpoint,
             adversary_trajectory,
             halfspace_vectors,
             halfspace_ratios,
-            risk_slopes,
-            risk_intercepts,
+            basis_vector,
+            risk_slope,
+            risk_intercept,
         )
 
         # Inequality Constraints: change A*x <= b -> lb < A*x < ub:
@@ -568,22 +557,25 @@ class QuadraticProgram(LeafSystem):
         initial_conditions = np.asarray(initial_conditions)
 
         # Update Risk Constraints:
-        avoidance_slope, avoidance_intercept = np.hsplit(
+        risk_slope, risk_intercept = np.hsplit(
             np.asarray(
-                self.get_input_port(self.avoidance_constraint_input).Eval(context)
+                self.get_input_port(self.constraint_input).Eval(context)
             ).reshape((self._spline_resolution, -1)),
             2,
         )
-        risk_slopes = avoidance_slope
-        risk_intercepts = avoidance_intercept
+
+        # Update Basis Vector:
+        basis_vector = np.asarray(
+            self.get_input_port(self.basis_vector_input).Eval(context)
+        )
 
         # Calculate halfspace vectors for linearization:
         adversary_trajectory, halfspace_vectors, halfspace_ratios = self.get_halfspace_vector(context)
-        
         # Visibility for logging:
         self._adversary_trajectory =  adversary_trajectory
         self._halfspace_vectors = halfspace_vectors
         self._halfspace_ratios = halfspace_ratios
+        self._basis_vector = basis_vector
 
         # Compute A and b matricies for equality constraints:
         A_eq = self._A_eq_fn(self._setpoint, initial_conditions)
@@ -595,16 +587,18 @@ class QuadraticProgram(LeafSystem):
             adversary_trajectory,
             halfspace_vectors,
             halfspace_ratios,
-            risk_slopes,
-            risk_intercepts,
+            basis_vector,
+            risk_slope,
+            risk_intercept,
         )
         b_ineq_ub = -self.inequality_func(
             self._setpoint,
             adversary_trajectory,
             halfspace_vectors,
             halfspace_ratios,
-            risk_slopes,
-            risk_intercepts,
+            basis_vector,
+            risk_slope,
+            risk_intercept,
         )
 
         # Inequality Constraints: change A*x <= b -> lb < A*x < ub:
@@ -675,7 +669,7 @@ class QuadraticProgram(LeafSystem):
         uy_sol = opt_sol[5, :]
         sx_sol = opt_sol[6, :]
         sy_sol = opt_sol[7, :]
-        s1_sol = opt_sol[8, :]
+        s_sol = opt_sol[8, :]
 
         ddx = self.compute_acceleration(ux_sol, dx_sol)
         ddy = self.compute_acceleration(uy_sol, dy_sol)
@@ -695,9 +689,19 @@ class QuadraticProgram(LeafSystem):
                 dx_sol, dy_sol,
                 ux_sol, uy_sol,
                 sx_sol, sy_sol,
-                s1_sol,
+                s_sol,
             ], 
             axis=0,
+        )
+
+        self._s_tilde= s_sol
+        self._delta, self._linearized_distance, self._linearized_velocity = self.get_risk_source(
+            self._adversary_trajectory,
+            opt_sol[:2, :],
+            opt_sol[3:5, :],
+            self._halfspace_vectors,
+            self._halfspace_ratios,
+            self._basis_vector,
         )
 
         # How can I clean this up?
@@ -707,20 +711,40 @@ class QuadraticProgram(LeafSystem):
     def get_halfspace_vector(self, context):
         # Get Values for Halfspace-Constraint:
         previous_trajectory = np.reshape(self._warm_start, (-1, self._nodes))
-        avoider_states = np.asarray(self.get_input_port(self.avoider_adversary_states_input).Eval(context))
-        # Linear prediction model of tracking adversary:
-        predicted_avoider_trajectory = np.einsum('i,j->ij', avoider_states[3:5], self._time_vector) \
-            + avoider_states[:2].reshape((2, -1))
+        obstacle_states = np.asarray(self.get_input_port(self.obstacle_states_input).Eval(context))
+        # Linear prediction model of adversary:
+        predicted_adversary_trajectory = np.einsum('i,j->ij', obstacle_states[3:5], self._time_vector) \
+            + obstacle_states[:2].reshape((2, -1))
+        predicted_adversary_velocity = obstacle_states[3:5].reshape((2, -1)) * np.ones_like(predicted_adversary_trajectory, dtype=float)
         # Halfspace vectors to linearize about:
-        halfspace_avoider = predicted_avoider_trajectory - previous_trajectory[:2, :]
+        halfspace_position_vector = predicted_adversary_trajectory - previous_trajectory[:2, :]
+        halfspace_velocity_vector = obstacle_states[3:5].reshape((2, -1)) - previous_trajectory[3:5, :]
         # Default if halfspace vector is a null vector:
-        halfspace_avoider_magnitude = np.linalg.norm(halfspace_avoider, axis=0)
-        halfspace_avoider_squared = np.einsum('ij,ij->j', halfspace_avoider, halfspace_avoider)
-        halfspace_avoider_ratio = np.divide(
-            halfspace_avoider_magnitude,
-            halfspace_avoider_squared,
-            out=np.zeros_like(halfspace_avoider_squared),
-            where=halfspace_avoider_squared!=0.0,
+        halfspace_position_magnitude = np.linalg.norm(halfspace_position_vector, axis=0)
+        halfspace_position_squared = np.einsum('ij,ij->j', halfspace_position_vector, halfspace_position_vector)
+        halfspace_position_ratio = np.divide(
+            halfspace_position_magnitude,
+            halfspace_position_squared,
+            out=np.zeros_like(halfspace_position_squared),
+            where=halfspace_position_squared!=0.0,
         )
-        return predicted_avoider_trajectory, halfspace_avoider, halfspace_avoider_ratio
-    
+        halfspace_velocity_magnitude = np.linalg.norm(halfspace_velocity_vector, axis=0)
+        halfspace_velocity_squared = np.einsum('ij,ij->j', halfspace_velocity_vector, halfspace_velocity_vector)
+        halfspace_velocity_ratio = np.divide(
+            halfspace_velocity_magnitude,
+            halfspace_velocity_squared,
+            out=np.zeros_like(halfspace_velocity_squared),
+            where=halfspace_velocity_squared!=0,
+        )
+        return np.vstack([predicted_adversary_trajectory, predicted_adversary_velocity]), np.vstack([halfspace_position_vector, halfspace_velocity_vector]), np.vstack([halfspace_position_ratio, halfspace_velocity_ratio])
+
+    def get_risk_source(self, adversary_trajectory, states_position, states_velocity, halfspace_vectors, halfspace_ratios, basis_vector):
+         # 2. Risk Constraints:
+        relative_distance = adversary_trajectory[:2, :] - states_position
+        relative_velocity = adversary_trajectory[2:, :] - states_velocity
+        # Linearized risk source approximations:
+        linearized_distance = jnp.einsum('ij,ij->j', relative_distance, halfspace_vectors[:2, :]) * halfspace_ratios[0, :]
+        linearized_velocity = jnp.einsum('ij,ij->j', relative_velocity, halfspace_vectors[2:, :]) * halfspace_ratios[1, :]
+        # Project risk sources onto basis vector:
+        delta = jnp.einsum('ij,i->j', jnp.vstack([linearized_distance, linearized_velocity]), basis_vector)
+        return delta, linearized_distance, linearized_velocity
