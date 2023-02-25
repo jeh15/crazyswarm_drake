@@ -52,7 +52,7 @@ class QuadraticProgram(LeafSystem):
         self._state_size = self._state_dimension * 2
         self._full_size = self._state_dimension * 3
         self._num_state_slack = 2
-        self._num_risk_slack = 2
+        self._num_risk_slack = 1
         self._num_slack = self._num_state_slack + self._num_risk_slack
         # Size of design variable vector:
         self._setpoint = jnp.zeros(
@@ -61,11 +61,11 @@ class QuadraticProgram(LeafSystem):
         )
 
         self._state_bounds = jnp.asarray(
-            [2.0, 2.0, 0.15],
+            [2.0, 2.0, 0.25],
             dtype=float,
         )
         self._weights = jnp.asarray(
-            [100.0, 10.0, 1000.0, 1.0],
+            [1000.0, 10.0, 1000.0, 1.0],
             dtype=float,
         )
 
@@ -145,22 +145,12 @@ class QuadraticProgram(LeafSystem):
         ).get_index()
 
         # Adversary states::
-        self.tracker_adversary_states_input = self.DeclareVectorInputPort(
-            "tracker_adversary_states",
-            self._full_size,
-        ).get_index()
-
         self.avoider_adversary_states_input = self.DeclareVectorInputPort(
             "avoider_adversary_states",
             self._full_size,
         ).get_index()
 
         # Updated Constraints from Learning Framework: (slope, intercept)
-        self.tracking_constraint_input = self.DeclareVectorInputPort(
-            "tracking_risk_constraints",
-            self._spline_resolution * 2,
-        ).get_index()
-
         self.avoidance_constraint_input = self.DeclareVectorInputPort(
             "avoidance_risk_constraints",
             self._spline_resolution * 2,
@@ -303,7 +293,7 @@ class QuadraticProgram(LeafSystem):
         slack_position = q[6:8, :]
 
         # Risk Slack Variable:
-        slack_variable = q[-2:, :]
+        slack_variable = q[-1:, :]
 
         # Area Boundary Constraint
         area_bound = jnp.vstack(
@@ -314,24 +304,18 @@ class QuadraticProgram(LeafSystem):
         ).flatten()
 
         # 2. Risk Constraints:
-        tracker_distance = adversary_trajectory[:2, :] - states_position
-        avoidance_distance = adversary_trajectory[2:, :] - states_position
+        avoidance_distance = adversary_trajectory[:2, :] - states_position
         # Linearized risk source approximations:
-        linearized_tracker_distance = jnp.einsum('ij,ij->j', tracker_distance, halfspace_vectors[:2, :]) * halfspace_ratios[0, :]
-        linearized_avoidance_distance = jnp.einsum('ij,ij->j', avoidance_distance, halfspace_vectors[2:, :]) * halfspace_ratios[1, :]
+        linearized_avoidance_distance = jnp.einsum('ij,ij->j', avoidance_distance, halfspace_vectors) * halfspace_ratios
         # rfun[i, j] = s[j] - (m[i] * x[j] + b[i])
-        tracker_rfun = (
-            -((jnp.einsum('i,j->ij', slope[:, 0], linearized_tracker_distance)) + intercept[:, 0].reshape(intercept.shape[0], -1)) + slack_variable[0, :]
-        ).flatten()
         avoidance_rfun = (
-            -((jnp.einsum('i,j->ij', slope[:, 1], linearized_avoidance_distance)) + intercept[:, 1].reshape(intercept.shape[0], -1)) + slack_variable[1, :]
+            -((jnp.einsum('i,j->ij', slope[:, 1], linearized_avoidance_distance)) + intercept[:, 1].reshape(intercept.shape[0], -1)) + slack_variable
         ).flatten()
 
         # Concatenate the constraints:
         inequality_constraints = jnp.concatenate(
             [
                 area_bound,
-                tracker_rfun,
                 avoidance_rfun,
             ],
             axis=0,
@@ -371,7 +355,7 @@ class QuadraticProgram(LeafSystem):
         slack_position = q[6:8, :]
 
         # Risk Slack Variable:
-        slack_variable = q[-2:, :]
+        slack_variable = q[-1, :]
 
         # Jerk Calculation:
         control_jerk = (states_control[:, 1:] - states_control[:, :-1]) / dt
@@ -392,13 +376,9 @@ class QuadraticProgram(LeafSystem):
             x=time_vector_midpoint,
             axis=0,
         )
-        minimize_track_failure = -w[3] * jnp.trapz(
-            y=slack_variable[0, :] / unit_time_step,
-            x=time_vector,
-            axis=0,
-        )
+
         minimize_avoid_failure = -w[3] * jnp.trapz(
-            y=slack_variable[1, :] / unit_time_step,
+            y=slack_variable / unit_time_step,
             x=time_vector,
             axis=0,
         )
@@ -408,7 +388,6 @@ class QuadraticProgram(LeafSystem):
                     minimize_slack_position, 
                     minimize_control, 
                     minimize_control_jerk, 
-                    minimize_track_failure,
                     minimize_avoid_failure,
                 ],
             ), 
@@ -434,21 +413,14 @@ class QuadraticProgram(LeafSystem):
         initial_conditions = np.asarray(initial_conditions)
 
         # Update Risk Constraints:
-        tracker_slope, tracker_intercept = np.hsplit(
-            np.asarray(
-                self.get_input_port(self.tracking_constraint_input).Eval(context)
-            ).reshape((self._spline_resolution, -1)),
-            2,
-        )
-
         avoidance_slope, avoidance_intercept = np.hsplit(
             np.asarray(
                 self.get_input_port(self.avoidance_constraint_input).Eval(context)
             ).reshape((self._spline_resolution, -1)),
             2,
         )
-        risk_slopes = np.hstack([tracker_slope, avoidance_slope])
-        risk_intercepts = np.hstack([tracker_intercept, avoidance_intercept])
+        risk_slopes = avoidance_slope
+        risk_intercepts = avoidance_intercept
 
         # Calculate halfspace vectors for linearization:
         adversary_trajectory, halfspace_vectors, halfspace_ratios = self.get_halfspace_vector(context)
@@ -595,21 +567,14 @@ class QuadraticProgram(LeafSystem):
         initial_conditions = np.asarray(initial_conditions)
 
         # Update Risk Constraints:
-        tracker_slope, tracker_intercept = np.hsplit(
-            np.asarray(
-                self.get_input_port(self.tracking_constraint_input).Eval(context)
-            ).reshape((self._spline_resolution, -1)),
-            2,
-        )
-
         avoidance_slope, avoidance_intercept = np.hsplit(
             np.asarray(
                 self.get_input_port(self.avoidance_constraint_input).Eval(context)
             ).reshape((self._spline_resolution, -1)),
             2,
         )
-        risk_slopes = np.hstack([tracker_slope, avoidance_slope])
-        risk_intercepts = np.hstack([tracker_intercept, avoidance_intercept])
+        risk_slopes = avoidance_slope
+        risk_intercepts = avoidance_intercept
 
         # Calculate halfspace vectors for linearization:
         adversary_trajectory, halfspace_vectors, halfspace_ratios = self.get_halfspace_vector(context)
@@ -710,7 +675,6 @@ class QuadraticProgram(LeafSystem):
         sx_sol = opt_sol[6, :]
         sy_sol = opt_sol[7, :]
         s1_sol = opt_sol[8, :]
-        s2_sol = opt_sol[9, :]
 
         ddx = self.compute_acceleration(ux_sol, dx_sol)
         ddy = self.compute_acceleration(uy_sol, dy_sol)
@@ -730,7 +694,7 @@ class QuadraticProgram(LeafSystem):
                 dx_sol, dy_sol,
                 ux_sol, uy_sol,
                 sx_sol, sy_sol,
-                s1_sol, s2_sol,
+                s1_sol,
             ], 
             axis=0,
         )
@@ -742,25 +706,13 @@ class QuadraticProgram(LeafSystem):
     def get_halfspace_vector(self, context):
         # Get Values for Halfspace-Constraint:
         previous_trajectory = np.reshape(self._warm_start, (-1, self._nodes))
-        tracker_states = np.asarray(self.get_input_port(self.tracker_adversary_states_input).Eval(context))
         avoider_states = np.asarray(self.get_input_port(self.avoider_adversary_states_input).Eval(context))
         # Linear prediction model of tracking adversary:
-        predicted_tracker_trajectory = np.einsum('i,j->ij', tracker_states[3:5], self._time_vector) \
-            + tracker_states[:2].reshape((2, -1))
         predicted_avoider_trajectory = np.einsum('i,j->ij', avoider_states[3:5], self._time_vector) \
             + avoider_states[:2].reshape((2, -1))
         # Halfspace vectors to linearize about:
-        halfspace_tracker = predicted_tracker_trajectory - previous_trajectory[:2, :]
         halfspace_avoider = predicted_avoider_trajectory - previous_trajectory[:2, :]
         # Default if halfspace vector is a null vector:
-        halfspace_tracker_magnitude = np.linalg.norm(halfspace_tracker, axis=0)
-        halfspace_tracker_squared = np.einsum('ij,ij->j', halfspace_tracker, halfspace_tracker)
-        halfspace_tracker_ratio = np.divide(
-            halfspace_tracker_magnitude,
-            halfspace_tracker_squared,
-            out=np.zeros_like(halfspace_tracker_squared),
-            where=halfspace_tracker_squared!=0.0,
-        )
         halfspace_avoider_magnitude = np.linalg.norm(halfspace_avoider, axis=0)
         halfspace_avoider_squared = np.einsum('ij,ij->j', halfspace_avoider, halfspace_avoider)
         halfspace_avoider_ratio = np.divide(
@@ -769,5 +721,5 @@ class QuadraticProgram(LeafSystem):
             out=np.zeros_like(halfspace_avoider_squared),
             where=halfspace_avoider_squared!=0.0,
         )
-        return np.vstack([predicted_tracker_trajectory, predicted_avoider_trajectory]), np.vstack([halfspace_tracker, halfspace_avoider]), np.vstack([halfspace_avoider_ratio, halfspace_tracker_ratio])
+        return predicted_avoider_trajectory, halfspace_avoider, halfspace_avoider_ratio
     
