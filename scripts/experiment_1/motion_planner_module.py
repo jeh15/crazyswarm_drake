@@ -700,6 +700,10 @@ class QuadraticProgram(LeafSystem):
             axis=0,
         )
 
+        # Evaluate Risk for Logging:
+        self.delta = self.evaluate_risk(self._adversary_trajectory, opt_sol[:2, :], self._halfspace_vectors, self._halfspace_ratios)
+        self.risk = s1_sol
+
         # How can I clean this up?
         a_state = context.get_mutable_abstract_state(self.state_index)
         a_state.set_value(self._full_state_trajectory)
@@ -724,3 +728,9 @@ class QuadraticProgram(LeafSystem):
         )
         return predicted_avoider_trajectory, halfspace_avoider, halfspace_avoider_ratio
     
+    def evaluate_risk(self, adversary_trajectory, states_position, halfspace_vectors, halfspace_ratios):
+        # Calculate Delta:
+        avoidance_distance = adversary_trajectory[:2, :] - states_position
+        # Linearized risk source approximations:
+        delta = np.einsum('ij,ij->j', avoidance_distance, halfspace_vectors) * halfspace_ratios
+        return delta

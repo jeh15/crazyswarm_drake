@@ -38,6 +38,7 @@ class CrazyswarmSystem(LeafSystem):
         self.estimated_states = np.zeros((6,), dtype=float)
         self.previous_position = np.zeros((3,), dtype=float)
         self.previous_states = np.zeros((6,), dtype=float)
+        self.current_state = np.zeros((9,))
 
         # Declare Input: Control Input Package
         self.DeclareVectorInputPort("drone_trajectory_input", self._full_size)
@@ -58,6 +59,7 @@ class CrazyswarmSystem(LeafSystem):
                 [self.position, self.estimated_states],
                 axis=0,
             )
+            self.current_state = full_state_output
             a_state = context.get_mutable_abstract_state(self.state_index)
             a_state.set_value(full_state_output)
 
@@ -113,6 +115,8 @@ class CrazyswarmSystem(LeafSystem):
                 [self.position, self.estimated_states],
                 axis=0,
             )
+            # Logging Visibility:
+            self.current_state = full_state_output
             # Update Abstract State:
             a_state = context.get_mutable_abstract_state(self.state_index)
             a_state.set_value(full_state_output)

@@ -100,10 +100,11 @@ class RiskLearning(LeafSystem):
             constraint_state.set_value(self.constraints.flatten())
             basis_vector_state = context.get_mutable_abstract_state(self.basis_vector_state_index)
             basis_vector_state.set_value(self.basis_vector.flatten())
-            # Visibility for Debug:
+            # Visibility for Logging/Debug:
             self._fp_sol = fp_solution
             self._ls_sol = ls_solution
-            self._data = data
+            self._binned_data = data
+            self._projected_data = projected_data
 
         self.DeclareInitializationEvent(
             event=PublishEvent(
@@ -140,11 +141,11 @@ class RiskLearning(LeafSystem):
             constraint_state.set_value(self.constraints.flatten())
             basis_vector_state = context.get_mutable_abstract_state(self.basis_vector_state_index)
             basis_vector_state.set_value(self.basis_vector.flatten())
-            # Visibility for Debug/Logging:
+            # Visibility for Logging/Debug:
             self._fp_sol = fp_solution
             self._ls_sol = ls_solution
-            self._data = data
-
+            self._binned_data = data
+            self._projected_data = projected_data
 
         self.DeclarePeriodicEvent(
             period_sec=self._OUTPUT_UPDATE_RATE,

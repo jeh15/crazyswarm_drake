@@ -87,10 +87,10 @@ class RiskLearning(LeafSystem):
             self.constraints = self.update_constraints(data=ls_solution)
             a_state = context.get_mutable_abstract_state(self.state_index)
             a_state.set_value(self.constraints.flatten())
-            # Visibility for Debug:
+            # Visibility for Logging/Debug:
             self._fp_sol = fp_solution
             self._ls_sol = ls_solution
-            self._data = data
+            self._binned_data = data
 
         self.DeclareInitializationEvent(
             event=PublishEvent(
@@ -127,7 +127,7 @@ class RiskLearning(LeafSystem):
             # Visibility for Debug/Logging:
             self._fp_sol = fp_solution
             self._ls_sol = ls_solution
-            self._data = data
+            self._binned_data = data
 
         self.DeclarePeriodicEvent(
             period_sec=self._OUTPUT_UPDATE_RATE,

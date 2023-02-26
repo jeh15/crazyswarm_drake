@@ -113,6 +113,8 @@ class CrazyswarmSystem(LeafSystem):
                 [self.position, self.estimated_states],
                 axis=0,
             )
+            # Visibility for Logging:
+            self.current_state = full_state_output
             # Update Abstract State:
             a_state = context.get_mutable_abstract_state(self.state_index)
             a_state.set_value(full_state_output)

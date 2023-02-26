@@ -28,7 +28,7 @@ import shelve_list
 def get_config() -> ml_collections.ConfigDict():
     config = ml_collections.ConfigDict()
     # Control Rates:
-    config.motion_planner_rate = 1.0 / 40.0
+    config.motion_planner_rate = 1.0 / 50.0
     config.crazyswarm_rate = 1.0 / 100.0
     config.adversary_rate = 1.0 / 100.0
     # Model Parameters:
@@ -37,7 +37,7 @@ def get_config() -> ml_collections.ConfigDict():
     config.time_horizon = 1.0
     config.time_vector = np.power(np.linspace(0, config.time_horizon, config.nodes), np.e)
     config.dt_vector = config.time_vector[1:] - config.time_vector[:-1]
-    config.area_bounds = 1.2
+    config.area_bounds = 1.0
 
     # Evaluation Sampling Time:
     config.sample_rate = config.crazyswarm_rate
@@ -170,51 +170,73 @@ def main(argv=None):
     simulator.Initialize()
 
     # Simulate System:
-    FINAL_TIME = 40.0
+    FINAL_TIME = 30.0
     dt = 0.1
     next_time_step = dt
 
-    # Lists to store data for animation:
+    # Logging
+    # Simulator Stats:
     realtime_rate_history = []
-    motion_planner_history = []
-    parser_history = []
-    adversary_history = []
-    tracking_history = []
-    tracker_fp_history = []
-    tracker_ls_history = []
-    tracker_data_history = []
-    avoidance_fp_history = []
-    avoidance_ls_history = []
-    avoidance_data_history = []
-    solve_time = []
+    simulator_time_history = []
+    optimization_solve_time = []
+
+    # Agent Stats:
+    agent_state_history =[]
+    motion_plan_history = []
+    setpoint_history = []
+    delta_1_history = []
+    delta_2_history = []
+    risk_1_history = []
+    risk_2_history = []
+
+    # Adversary Stats:
+    adversary_state_history = []
+    tracking_state_history = []
+
+    # Learning Stats:
+    tracking_raw_data_history = []
+    tracking_binned_data_history = []
+    tracking_failure_probability_history = []
+    tracking_log_survival_history = []
+    tracking_risk_constraint_history = []
+    avoidance_raw_data_history = []
+    avoidance_binned_data_history = []
+    avoidance_failure_probability_history = []
+    avoidance_log_survival_history = []
+    avoidance_risk_constraint_history = []
+
+    shelf_filename = '/tmp/experiment_2_shelve.out'
+    shelf_list = [
+        'realtime_rate_history',
+        'simulator_time_history',
+        'optimization_solve_time',
+        'agent_state_history',
+        'motion_plan_history',
+        'setpoint_history',
+        'delta_1_history',
+        'delta_2_history',
+        'risk_1_history',
+        'risk_2_history',
+        'adversary_state_history',
+        'tracking_state_history',
+        'tracking_raw_data_history',
+        'tracking_binned_data_history',
+        'tracking_failure_probability_history',
+        'tracking_log_survival_history',
+        'tracking_risk_constraint_history',
+        'avoidance_raw_data_history',
+        'avoidance_binned_data_history',
+        'avoidance_failure_probability_history',
+        'avoidance_log_survival_history',
+        'avoidance_risk_constraint_history',
+    ]
 
     # w/ while-loop:
     while next_time_step <= FINAL_TIME:
-        print(f"Drake Real Time Rate: {simulator.get_actual_realtime_rate()}")
+        # Simulator Stats:
         realtime_rate_history.append(simulator.get_actual_realtime_rate())
-
-        # Drone Control History:
-        motion_planner_history.append(driver_planner._full_state_trajectory)
-        parser_history.append(driver_parser._current_trajectory)
-
-        # Desired Tracking History:
-        tracking_history.append(driver_reference._figure_eight_reference[:2])
-
-        # Chaser Drone Control History:
-        adversary_history.append(driver_adversary._state_output)
-
-        # Tracking Risk Learning Task:
-        tracker_fp_history.append(driver_tracking_learner._fp_sol)
-        tracker_ls_history.append(driver_tracking_learner._ls_sol)
-        tracker_data_history.append(driver_tracking_learner._data)
-
-        # Avoidance Risk Learning Task:
-        avoidance_fp_history.append(driver_avoidance_learner._fp_sol)
-        avoidance_ls_history.append(driver_avoidance_learner._ls_sol)
-        avoidance_data_history.append(driver_avoidance_learner._data)
-
-        # Solve Time History:
-        solve_time.append(
+        simulator_time_history.append(context.get_time())
+        optimization_solve_time.append(
             [
                 driver_planner._optimizer_time,
                 driver_tracking_learner.fpn.run_time,
@@ -223,11 +245,38 @@ def main(argv=None):
                 driver_avoidance_learner.lsn.run_time,
             ]
         )
+
+        # Drone Stats:
+        agent_state_history.append(driver_crazyswarm.current_state)
+        motion_plan_history.append(driver_planner._full_state_trajectory)
+        setpoint_history.append(driver_parser._current_trajectory)
+        delta_1_history.append(driver_planner.delta_1)
+        delta_2_history.append(driver_planner.delta_2)
+        risk_1_history.append(driver_planner.risk_1)
+        risk_2_history.append(driver_planner.risk_2)
+
+        # Adversary/Tracking Stats:
+        tracking_state_history.append(driver_reference._figure_eight_reference)
+        adversary_state_history.append(driver_adversary._state_output)
+
+        # Learning Framework Stats:
+        tracking_raw_data_history.append(driver_tracking_learner.data)
+        tracking_binned_data_history.append(driver_tracking_learner._binned_data)
+        tracking_failure_probability_history.append(driver_tracking_learner._fp_sol)
+        tracking_log_survival_history.append(driver_tracking_learner._ls_sol)
+        tracking_risk_constraint_history.append(driver_tracking_learner.constraints)
+
+        avoidance_raw_data_history.append(driver_avoidance_learner.data)
+        avoidance_binned_data_history.append(driver_avoidance_learner._binned_data)
+        avoidance_failure_probability_history.append(driver_avoidance_learner._fp_sol)
+        avoidance_log_survival_history.append(driver_avoidance_learner._ls_sol)
+        avoidance_risk_constraint_history.append(driver_avoidance_learner.constraints)
         try:
             simulator.AdvanceTo(next_time_step)
             next_time_step += dt
         except:
             print(f"Exception Occurred...")
+            driver_adversary.execute_landing_sequence()
             driver_crazyswarm.execute_landing_sequence()
             break
 
@@ -235,76 +284,83 @@ def main(argv=None):
     driver_adversary.execute_landing_sequence()
     driver_crazyswarm.execute_landing_sequence()
 
-    # Plot results:
-    fig_playback, ax_playback = plt.subplots()
-    fig_playback.tight_layout(pad=2.5)
-    planner_plot, = ax_playback.plot([], [], color='cornflowerblue', alpha=0.5, linewidth=1.0)
-    node_plot, = ax_playback.plot([], [], marker='.', markeredgecolor='black', markerfacecolor='black', markersize=0.25, linestyle='None')
-    # Simulation Plot:
-    ax_playback.axis('equal')
-    ax_playback.set(xlim=(-5, 5), ylim=(-5, 5))
-    ax_playback.set_xlabel('X')  # X Label
-    ax_playback.set_ylabel('Y')  # Y Label
-
-    # Animation
-    ax_playback.set_title('Risk Learning Animation:')
-    video_title = "hardware_risk_learning_playback"
-
-    # Initialize Patches and Plots:
-    adv = Circle((0, 0), radius=0.01, color='red')
-    agn = Circle((0, 0), radius=0.01, color='cornflowerblue')
-    ref = Circle((0, 0), radius=0.01, color='grey')
-    ref_rad = Circle((0, 0), radius=track_radius, color='grey', alpha=0.1)
-    adv_rad = Circle((0, 0), radius=avoid_radius, color='red', alpha=0.1)
-    arena = Rectangle(
-        (-params.area_bounds, -params.area_bounds),
-        width=2*params.area_bounds,
-        height=2*params.area_bounds,
-        linewidth=1.0,
-        edgecolor='red',
-        facecolor='None',
-        alpha=0.1,
+    shelve_list.shelve_list(
+        filename=shelf_filename, 
+        key_list=shelf_list,
+        workspace_variable_names=dir(),
+        local_variables=locals(),
     )
-    ax_playback.add_patch(adv)
-    ax_playback.add_patch(agn)
-    ax_playback.add_patch(ref)
-    ax_playback.add_patch(ref_rad)
-    ax_playback.add_patch(adv_rad)
-    ax_playback.add_patch(arena)
 
-    # Setup Animation Writer:
-    dpi = 300
-    FPS = 20
-    simulation_size = len(realtime_rate_history)
-    sample_rate = int(1 / (dt * FPS))
-    writerObj = FFMpegWriter(fps=FPS)
+    # # Plot results:
+    # fig_playback, ax_playback = plt.subplots()
+    # fig_playback.tight_layout(pad=2.5)
+    # planner_plot, = ax_playback.plot([], [], color='cornflowerblue', alpha=0.5, linewidth=1.0)
+    # node_plot, = ax_playback.plot([], [], marker='.', markeredgecolor='black', markerfacecolor='black', markersize=0.25, linestyle='None')
+    # # Simulation Plot:
+    # ax_playback.axis('equal')
+    # ax_playback.set(xlim=(-5, 5), ylim=(-5, 5))
+    # ax_playback.set_xlabel('X')  # X Label
+    # ax_playback.set_ylabel('Y')  # Y Label
 
-    # Plot and Create Animation:
-    with writerObj.saving(fig_playback, video_title+".mp4", dpi):
-        for i in range(0, simulation_size):
-            dt_realtime = dt * realtime_rate_history[i]
-            sample_rate = np.ceil(dt_realtime * FPS)
+    # # Animation
+    # ax_playback.set_title('Risk Learning Animation:')
+    # video_title = "hardware_risk_learning_playback"
 
-            if sample_rate <= 1:
-                sample_rate = 1
+    # # Initialize Patches and Plots:
+    # adv = Circle((0, 0), radius=0.01, color='red')
+    # agn = Circle((0, 0), radius=0.01, color='cornflowerblue')
+    # ref = Circle((0, 0), radius=0.01, color='grey')
+    # ref_rad = Circle((0, 0), radius=track_radius, color='grey', alpha=0.1)
+    # adv_rad = Circle((0, 0), radius=avoid_radius, color='red', alpha=0.1)
+    # arena = Rectangle(
+    #     (-params.area_bounds, -params.area_bounds),
+    #     width=2*params.area_bounds,
+    #     height=2*params.area_bounds,
+    #     linewidth=1.0,
+    #     edgecolor='red',
+    #     facecolor='None',
+    #     alpha=0.1,
+    # )
+    # ax_playback.add_patch(adv)
+    # ax_playback.add_patch(agn)
+    # ax_playback.add_patch(ref)
+    # ax_playback.add_patch(ref_rad)
+    # ax_playback.add_patch(adv_rad)
+    # ax_playback.add_patch(arena)
 
-            for _ in range(0, int(sample_rate)):
-                # Plot Adversary:
-                adv.center = adversary_history[i][0], adversary_history[i][1]
-                adv_rad.center = adversary_history[i][0], adversary_history[i][1]
-                # Reference:
-                ref.center = tracking_history[i][0], tracking_history[i][1]
-                ref_rad.center = tracking_history[i][0], tracking_history[i][1]
-                # Plot Agent and Motion Planner Trajectory:
-                position = parser_history[i]
-                motion_plan = np.reshape(motion_planner_history[i], (6, -1))
-                agn.center = position[0], position[1]
-                planner_plot.set_data(motion_plan[0, :], motion_plan[1, :])
-                node_plot.set_data(motion_plan[0, :], motion_plan[1, :])
-                # Update Drawing:
-                fig_playback.canvas.draw()  # Update the figure with the new changes
-                # Grab and Save Frame:
-                writerObj.grab_frame()
+    # # Setup Animation Writer:
+    # dpi = 300
+    # FPS = 20
+    # simulation_size = len(realtime_rate_history)
+    # sample_rate = int(1 / (dt * FPS))
+    # writerObj = FFMpegWriter(fps=FPS)
+
+    # # Plot and Create Animation:
+    # with writerObj.saving(fig_playback, video_title+".mp4", dpi):
+    #     for i in range(0, simulation_size):
+    #         dt_realtime = dt * realtime_rate_history[i]
+    #         sample_rate = np.ceil(dt_realtime * FPS)
+
+    #         if sample_rate <= 1:
+    #             sample_rate = 1
+
+    #         for _ in range(0, int(sample_rate)):
+    #             # Plot Adversary:
+    #             adv.center = adversary_history[i][0], adversary_history[i][1]
+    #             adv_rad.center = adversary_history[i][0], adversary_history[i][1]
+    #             # Reference:
+    #             ref.center = tracking_history[i][0], tracking_history[i][1]
+    #             ref_rad.center = tracking_history[i][0], tracking_history[i][1]
+    #             # Plot Agent and Motion Planner Trajectory:
+    #             position = parser_history[i]
+    #             motion_plan = np.reshape(motion_planner_history[i], (6, -1))
+    #             agn.center = position[0], position[1]
+    #             planner_plot.set_data(motion_plan[0, :], motion_plan[1, :])
+    #             node_plot.set_data(motion_plan[0, :], motion_plan[1, :])
+    #             # Update Drawing:
+    #             fig_playback.canvas.draw()  # Update the figure with the new changes
+    #             # Grab and Save Frame:
+    #             writerObj.grab_frame()
 
     # # Learning Framework:
     # fig_regression, ax_regression = plt.subplots(2)

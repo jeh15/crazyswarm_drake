@@ -61,11 +61,11 @@ class QuadraticProgram(LeafSystem):
         )
 
         self._state_bounds = jnp.asarray(
-            [2.0, 2.0, 0.15],
+            [2.0, 2.0, 0.2],
             dtype=float,
         )
         self._weights = jnp.asarray(
-            [100.0, 10.0, 1000.0, 1.0],
+            [1000.0, 10.0, 1000.0, 1.0],
             dtype=float,
         )
 
@@ -735,6 +735,11 @@ class QuadraticProgram(LeafSystem):
             axis=0,
         )
 
+        # Visbility for Logging:
+        self.delta_1, self.delta_2 = self.evaluate_risk(self._adversary_trajectory, opt_sol[:2, :], self._halfspace_vectors, self._halfspace_ratios)
+        self.risk_1 = s1_sol
+        self.risk_2 = s2_sol
+
         # How can I clean this up?
         a_state = context.get_mutable_abstract_state(self.state_index)
         a_state.set_value(self._full_state_trajectory)
@@ -771,3 +776,11 @@ class QuadraticProgram(LeafSystem):
         )
         return np.vstack([predicted_tracker_trajectory, predicted_avoider_trajectory]), np.vstack([halfspace_tracker, halfspace_avoider]), np.vstack([halfspace_tracker_ratio, halfspace_avoider_ratio])
     
+    def evaluate_risk(self, adversary_trajectory, states_position, halfspace_vectors, halfspace_ratios):
+        # 2. Risk Constraints:
+        tracker_distance = adversary_trajectory[:2, :] - states_position
+        avoidance_distance = adversary_trajectory[2:, :] - states_position
+        # Linearized risk source approximations:
+        delta_1 = np.einsum('ij,ij->j', tracker_distance, halfspace_vectors[:2, :]) * halfspace_ratios[0, :]
+        delta_2 = np.einsum('ij,ij->j', avoidance_distance, halfspace_vectors[2:, :]) * halfspace_ratios[1, :]
+        return delta_1, delta_2

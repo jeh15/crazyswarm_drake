@@ -65,7 +65,6 @@ class QuadraticProgram(LeafSystem):
             [2.0, 2.0, 0.2],
             dtype=float,
         )
-
         self._weights = jnp.asarray(
             [1000.0, 10.0, 1000.0, 1.0],
             dtype=float,
