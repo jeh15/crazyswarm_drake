@@ -693,8 +693,8 @@ class QuadraticProgram(LeafSystem):
             axis=0,
         )
 
-        self._s_tilde= s_sol
-        self._delta, self._linearized_distance, self._linearized_velocity = self.get_risk_source(
+        self.risk = s_sol
+        self.delta, self._linearized_distance, self._linearized_velocity = self.get_risk_source(
             self._adversary_trajectory,
             opt_sol[:2, :],
             opt_sol[3:5, :],

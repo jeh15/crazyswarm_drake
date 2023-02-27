@@ -12,7 +12,6 @@ from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import DiagramBuilder
 
 # Custom LeafSystems:
-import reference_trajectory_module as reference_trajectory
 import motion_planner_module as motion_planner
 import trajectory_parser_module as trajectory_parser
 import crazyswarm_module as crazyswarm_controller
@@ -38,7 +37,6 @@ def get_config() -> ml_collections.ConfigDict():
     config.time_vector = np.power(np.linspace(0, config.time_horizon, config.nodes), np.e)
     config.dt_vector = config.time_vector[1:] - config.time_vector[:-1]
     config.area_bounds = 1.0
-
     # Evaluation Sampling Time:
     config.sample_rate = config.crazyswarm_rate
     # Spline Parameters:
@@ -52,10 +50,6 @@ def main(argv=None):
 
     # Create a block diagram containing our system.
     builder = DiagramBuilder()
-
-    # Reference Motion:
-    driver_reference = reference_trajectory.ReferenceTrajectory(config=params)
-    reference = builder.AddSystem(driver_reference)
 
     # Motion Planner:
     driver_planner = motion_planner.QuadraticProgram(config=params)
@@ -74,11 +68,6 @@ def main(argv=None):
     adversary = builder.AddSystem(driver_adversary)
 
     # Risk Learning:
-    track_radius = 0.6
-    driver_tracking_learner = learning_framework.RiskLearning(config=params, failure_radius=track_radius)
-    driver_tracking_learner.evaluate = evaluator_extension.tracking_evaluation
-    tracking_learner = builder.AddSystem(driver_tracking_learner)
-
     avoid_radius = 0.5
     driver_avoidance_learner = learning_framework.RiskLearning(config=params, failure_radius=avoid_radius)
     driver_avoidance_learner.evaluate = evaluator_extension.avoidance_evaluation
@@ -109,17 +98,7 @@ def main(argv=None):
         planner.get_input_port(driver_planner.avoider_adversary_states_input)
     )
 
-    builder.Connect(
-        reference.get_output_port(driver_reference.figure_eight_output),
-        planner.get_input_port(driver_planner.tracker_adversary_states_input)
-    )
-
     # Crazyswarm Out -> Learning Framework
-    builder.Connect(
-        crazyswarm.get_output_port(0),
-        tracking_learner.get_input_port(driver_tracking_learner.agent_input)
-    )
-
     builder.Connect(
         crazyswarm.get_output_port(0),
         avoidance_learner.get_input_port(driver_avoidance_learner.agent_input)
@@ -135,17 +114,6 @@ def main(argv=None):
     builder.Connect(
         adversary.get_output_port(0),
         avoidance_learner.get_input_port(driver_avoidance_learner.adversary_input)
-    )
-
-    builder.Connect(
-        reference.get_output_port(driver_reference.figure_eight_output),
-        tracking_learner.get_input_port(driver_tracking_learner.adversary_input)
-    )
-
-    # Learning Framework -> Motion Planner Constraints:
-    builder.Connect(
-        tracking_learner.get_output_port(0),
-        planner.get_input_port(driver_planner.tracking_constraint_input)
     )
 
     builder.Connect(
@@ -184,28 +152,20 @@ def main(argv=None):
     agent_state_history =[]
     motion_plan_history = []
     setpoint_history = []
-    delta_1_history = []
-    delta_2_history = []
-    risk_1_history = []
-    risk_2_history = []
+    delta_history = []
+    risk_history = []
 
     # Adversary Stats:
     adversary_state_history = []
-    tracking_state_history = []
 
     # Learning Stats:
-    tracking_raw_data_history = []
-    tracking_binned_data_history = []
-    tracking_failure_probability_history = []
-    tracking_log_survival_history = []
-    tracking_risk_constraint_history = []
-    avoidance_raw_data_history = []
-    avoidance_binned_data_history = []
-    avoidance_failure_probability_history = []
-    avoidance_log_survival_history = []
-    avoidance_risk_constraint_history = []
+    raw_data_history = []
+    binned_data_history = []
+    failure_probability_history = []
+    log_survival_history = []
+    risk_constraint_history = []
 
-    shelf_filename = '/tmp/experiment_2_shelve.out'
+    shelf_filename = '/tmp/experiment_1_shelve.out'
     shelf_list = [
         'realtime_rate_history',
         'simulator_time_history',
@@ -213,34 +173,25 @@ def main(argv=None):
         'agent_state_history',
         'motion_plan_history',
         'setpoint_history',
-        'delta_1_history',
-        'delta_2_history',
-        'risk_1_history',
-        'risk_2_history',
+        'delta_history',
+        'risk_history',
         'adversary_state_history',
-        'tracking_state_history',
-        'tracking_raw_data_history',
-        'tracking_binned_data_history',
-        'tracking_failure_probability_history',
-        'tracking_log_survival_history',
-        'tracking_risk_constraint_history',
-        'avoidance_raw_data_history',
-        'avoidance_binned_data_history',
-        'avoidance_failure_probability_history',
-        'avoidance_log_survival_history',
-        'avoidance_risk_constraint_history',
+        'raw_data_history',
+        'binned_data_history',
+        'failure_probability_history',
+        'log_survival_history',
+        'risk_constraint_history',
     ]
 
     # w/ while-loop:
     while next_time_step <= FINAL_TIME:
+        print(f"Drake Real Time Rate: {simulator.get_actual_realtime_rate()}")
         # Simulator Stats:
         realtime_rate_history.append(simulator.get_actual_realtime_rate())
         simulator_time_history.append(context.get_time())
         optimization_solve_time.append(
             [
                 driver_planner._optimizer_time,
-                driver_tracking_learner.fpn.run_time,
-                driver_tracking_learner.lsn.run_time,
                 driver_avoidance_learner.fpn.run_time,
                 driver_avoidance_learner.lsn.run_time,
             ]
@@ -250,27 +201,19 @@ def main(argv=None):
         agent_state_history.append(driver_crazyswarm.current_state)
         motion_plan_history.append(driver_planner._full_state_trajectory)
         setpoint_history.append(driver_parser._current_trajectory)
-        delta_1_history.append(driver_planner.delta_1)
-        delta_2_history.append(driver_planner.delta_2)
-        risk_1_history.append(driver_planner.risk_1)
-        risk_2_history.append(driver_planner.risk_2)
+        delta_history.append(driver_planner.delta)
+        risk_history.append(driver_planner.risk)
 
-        # Adversary/Tracking Stats:
-        tracking_state_history.append(driver_reference._figure_eight_reference)
+        # Adversary Stats:
         adversary_state_history.append(driver_adversary._state_output)
 
         # Learning Framework Stats:
-        tracking_raw_data_history.append(driver_tracking_learner.data)
-        tracking_binned_data_history.append(driver_tracking_learner._binned_data)
-        tracking_failure_probability_history.append(driver_tracking_learner._fp_sol)
-        tracking_log_survival_history.append(driver_tracking_learner._ls_sol)
-        tracking_risk_constraint_history.append(driver_tracking_learner.constraints)
+        raw_data_history.append(driver_avoidance_learner.data)
+        binned_data_history.append(driver_avoidance_learner._binned_data)
+        failure_probability_history.append(driver_avoidance_learner._fp_sol)
+        log_survival_history.append(driver_avoidance_learner._ls_sol)
+        risk_constraint_history.append(driver_avoidance_learner.constraints)
 
-        avoidance_raw_data_history.append(driver_avoidance_learner.data)
-        avoidance_binned_data_history.append(driver_avoidance_learner._binned_data)
-        avoidance_failure_probability_history.append(driver_avoidance_learner._fp_sol)
-        avoidance_log_survival_history.append(driver_avoidance_learner._ls_sol)
-        avoidance_risk_constraint_history.append(driver_avoidance_learner.constraints)
         try:
             simulator.AdvanceTo(next_time_step)
             next_time_step += dt
@@ -309,8 +252,6 @@ def main(argv=None):
     # # Initialize Patches and Plots:
     # adv = Circle((0, 0), radius=0.01, color='red')
     # agn = Circle((0, 0), radius=0.01, color='cornflowerblue')
-    # ref = Circle((0, 0), radius=0.01, color='grey')
-    # ref_rad = Circle((0, 0), radius=track_radius, color='grey', alpha=0.1)
     # adv_rad = Circle((0, 0), radius=avoid_radius, color='red', alpha=0.1)
     # arena = Rectangle(
     #     (-params.area_bounds, -params.area_bounds),
@@ -323,8 +264,6 @@ def main(argv=None):
     # )
     # ax_playback.add_patch(adv)
     # ax_playback.add_patch(agn)
-    # ax_playback.add_patch(ref)
-    # ax_playback.add_patch(ref_rad)
     # ax_playback.add_patch(adv_rad)
     # ax_playback.add_patch(arena)
 
@@ -348,9 +287,6 @@ def main(argv=None):
     #             # Plot Adversary:
     #             adv.center = adversary_history[i][0], adversary_history[i][1]
     #             adv_rad.center = adversary_history[i][0], adversary_history[i][1]
-    #             # Reference:
-    #             ref.center = tracking_history[i][0], tracking_history[i][1]
-    #             ref_rad.center = tracking_history[i][0], tracking_history[i][1]
     #             # Plot Agent and Motion Planner Trajectory:
     #             position = parser_history[i]
     #             motion_plan = np.reshape(motion_planner_history[i], (6, -1))

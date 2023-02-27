@@ -104,7 +104,6 @@ class RiskLearning(LeafSystem):
             self._fp_sol = fp_solution
             self._ls_sol = ls_solution
             self._binned_data = data
-            self._projected_data = projected_data
 
         self.DeclareInitializationEvent(
             event=PublishEvent(
@@ -145,7 +144,6 @@ class RiskLearning(LeafSystem):
             self._fp_sol = fp_solution
             self._ls_sol = ls_solution
             self._binned_data = data
-            self._projected_data = projected_data
 
         self.DeclarePeriodicEvent(
             period_sec=self._OUTPUT_UPDATE_RATE,
@@ -245,6 +243,6 @@ class RiskLearning(LeafSystem):
         # Project data onto unit basis vector:
         data_projected = np.einsum('ij,i->j', data[:-1, :], basis_vector)
         # Transform data back to original axes: (For Debug/Logging)
-        self._data_projected_origin = data_projected * np.reshape(basis_vector, (-1, 1))
+        self._projected_data = data_projected * np.reshape(basis_vector, (-1, 1))
         data_projected = np.vstack([data_projected, data[-1, :]])
         return data_projected, basis_vector

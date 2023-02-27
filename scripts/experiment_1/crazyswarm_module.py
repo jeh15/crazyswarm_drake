@@ -195,7 +195,7 @@ class CrazyswarmSystem(LeafSystem):
         # Initialize Crazyflies:
         print(f"Initializing Crazyswarm...")
         self.swarm = Crazyswarm()
-        self.cf = self.swarm.allcfs.crazyflies[0]
+        self.cf = self.swarm.allcfs.crazyflies[-1]
         if self.cf:
             print(f"Crazyflie connected...")
         else:

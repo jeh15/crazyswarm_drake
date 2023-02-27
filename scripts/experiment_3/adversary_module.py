@@ -34,9 +34,9 @@ class Adversary(LeafSystem):
 
         # PID Controller:
         self.saturation_limit = 0.0
-        self.saturation_max_limit = 200.0
+        self.saturation_max_limit = 100.0
         self.ramp_time = 10.0
-        self._safety_offset = 0.1
+        self._safety_offset = 0.075
         self._error_previous = 0.0
         self._error = np.zeros((3,), dtype=float)
         self._error_derivative = np.zeros((3,), dtype=float)
@@ -240,6 +240,7 @@ class Adversary(LeafSystem):
             print(f"Time Helper not connected...")
 
         # Define Suscriber Callback for State Estimation:
+        # rospy.Subscriber("/cf1/log1", GenericLogData, subscriber_callback)
         rospy.Subscriber("/cf4/log1", GenericLogData, subscriber_callback)
 
         # Save Ground Position:
