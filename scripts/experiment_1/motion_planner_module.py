@@ -61,11 +61,11 @@ class QuadraticProgram(LeafSystem):
         )
 
         self._state_bounds = jnp.asarray(
-            [2.0, 2.0, 0.2],
+            [2.0, 4.0, 0.5],
             dtype=float,
         )
         self._weights = jnp.asarray(
-            [1000.0, 10.0, 1000.0, 1.0],
+            [1.0, 100.0, 1000.0, 10.0, 1.0],
             dtype=float,
         )
 
@@ -377,8 +377,12 @@ class QuadraticProgram(LeafSystem):
             x=time_vector_midpoint,
             axis=0,
         )
-
-        minimize_avoid_failure = -w[3] * jnp.trapz(
+        minimize_states = w[3] * jnp.trapz(
+            y=jnp.sum(states_position ** 2, axis=0),
+            x=time_vector,
+            axis=0,
+        )
+        minimize_avoid_failure = -w[4] * jnp.trapz(
             y=slack_variable / unit_time_step,
             x=time_vector,
             axis=0,
@@ -388,7 +392,8 @@ class QuadraticProgram(LeafSystem):
                 [
                     minimize_slack_position, 
                     minimize_control, 
-                    minimize_control_jerk, 
+                    minimize_control_jerk,
+                    minimize_states,
                     minimize_avoid_failure,
                 ],
             ), 

@@ -30,7 +30,7 @@ class ReferenceTrajectory(LeafSystem):
         self._linear_reference = np.zeros((self._full_size + 3,), dtype=float)
 
         # Constant Parameters:
-        self.r = 1.0
+        self.r = 0.75
         self.factor = 4.0
 
         # Assign Initial Values: (Figure Eight)

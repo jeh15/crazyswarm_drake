@@ -61,7 +61,7 @@ class QuadraticProgram(LeafSystem):
         )
 
         self._state_bounds = jnp.asarray(
-            [2.0, 2.0, 0.2],
+            [2.0, 2.0, 0.15],
             dtype=float,
         )
         self._weights = jnp.asarray(

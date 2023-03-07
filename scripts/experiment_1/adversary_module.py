@@ -36,13 +36,13 @@ class Adversary(LeafSystem):
         self.saturation_limit = 0.0
         self.saturation_max_limit = 200.0
         self.ramp_time = 10.0
-        self._safety_offset = 0.075
+        self._safety_offset = 0.0 #0.075
         self._error_previous = 0.0
         self._error = np.zeros((3,), dtype=float)
         self._error_derivative = np.zeros((3,), dtype=float)
         
-        self._P_limt = 100.0 # 200 @ 15 ramp is hard
-        self._P_init = 10.0
+        self._P_limt = 150.0 # 200 @ 15 ramp is hard
+        self._P_init = 50.0
         self._P = 10.0
         self._D = 20.0
 
@@ -225,7 +225,7 @@ class Adversary(LeafSystem):
         # Initialize Crazyflies:
         print(f"Initializing Crazyswarm...")
         self.swarm = Crazyswarm()
-        self.cf = self.swarm.allcfs.crazyflies[0]
+        self.cf = self.swarm.allcfs.crazyflies[-1]
         if self.cf:
             print(f"Crazyflie connected...")
         else:
@@ -239,8 +239,12 @@ class Adversary(LeafSystem):
         else:
             print(f"Time Helper not connected...")
 
+        # LED Set Param:
+        self.cf.setParam("ring/effect", 7)
+        self.cf.setLEDColor(1,0,0)
+
         # Define Suscriber Callback for State Estimation:
-        rospy.Subscriber("/cf1/log1", GenericLogData, subscriber_callback)
+        rospy.Subscriber("/cf4/log1", GenericLogData, subscriber_callback)
 
         # Save Ground Position:
         self._land_position = self.cf.position()

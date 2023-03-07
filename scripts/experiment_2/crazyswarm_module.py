@@ -193,7 +193,7 @@ class CrazyswarmSystem(LeafSystem):
         # Initialize Crazyflies:
         print(f"Initializing Crazyswarm...")
         self.swarm = Crazyswarm()
-        self.cf = self.swarm.allcfs.crazyflies[-1]
+        self.cf = self.swarm.allcfs.crazyflies[0]
         if self.cf:
             print(f"Crazyflie connected...")
         else:
@@ -206,6 +206,10 @@ class CrazyswarmSystem(LeafSystem):
             print(f"Time Helper connected...")
         else:
             print(f"Time Helper not connected...")
+
+        # LED Set Param:
+        self.cf.setParam("ring/effect", 7)
+        self.cf.setLEDColor(0,0,1)
 
         # Define Suscriber Callback for State Estimation:
         rospy.Subscriber("/cf2/log1", GenericLogData, subscriber_callback)
@@ -223,3 +227,8 @@ class CrazyswarmSystem(LeafSystem):
         # Initialize Position:
         self.target_position = self._initial_position
         self.position = self._initial_position
+        # self.cf.goTo(
+        #     goal=[self.position[0], self.position[1], self.target_height],
+        #     yaw=0.0,
+        #     duration=1.0,
+        # )
