@@ -75,6 +75,7 @@ def exp(q: jax.typing.ArrayLike) -> jax.Array:
 
 @partial(jax.jit, static_argnames=['dt'])
 def integrate(q: jax.typing.ArrayLike, v: jax.typing.ArrayLike, dt: float) -> jax.Array:
+    # Implementation from: https://github.com/glotzerlab/rowan/blob/master/rowan/calculus/__init__.py
     q = jnp.asarray(q)
     v = jnp.asarray(v)
     dt = jnp.asarray(dt)
