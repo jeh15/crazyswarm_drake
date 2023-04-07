@@ -13,6 +13,10 @@ from rowan.functions import _promote_vec as rowan_promote_vec
 @jax.jit
 def multiply(qi: jax.typing.ArrayLike, qj: jax.typing.ArrayLike) -> jax.Array:
     # Implementation from: https://github.com/glotzerlab/rowan/blob/master/rowan/functions.py
+    """
+        Multiply two quaternions together where
+        qi is on the left and qj is on the right.
+    """
 
     qi = jnp.asarray(qi)
     _qi = jnp.expand_dims(qi[..., 0], axis=-1)
@@ -42,6 +46,9 @@ def multiply(qi: jax.typing.ArrayLike, qj: jax.typing.ArrayLike) -> jax.Array:
 @jax.jit
 def exp(q: jax.typing.ArrayLike) -> jax.Array:
     # Implementation from: https://github.com/glotzerlab/rowan/blob/master/rowan/functions.py
+    """
+        Compute the exponential of quaternion q.
+    """
 
     q = jnp.asarray(q)
 
@@ -83,6 +90,56 @@ def integrate(q: jax.typing.ArrayLike, v: jax.typing.ArrayLike, dt: float) -> ja
 
 
 @jax.jit
+def conjugate(q: jax.typing.ArrayLike) -> jax.Array:
+    # Implementation from: https://github.com/glotzerlab/rowan/blob/master/rowan/functions.py
+    """
+        Compute the conjugate of quaternion q.
+    """
+    q = jnp.asarray(q)
+    q = (
+        q.at[..., 1:]
+        .set(-1 * q[..., 1:])
+    )
+    return q
+
+
+@jax.jit
+def rotate(q: jax.typing.ArrayLike, v: jax.typing.ArrayLike) -> jax.Array:
+    # Implementation from: https://github.com/glotzerlab/rowan/blob/master/rowan/functions.py
+    """
+        Rotate vectors v by quaternions q.
+    """
+    q = jnp.asarray(q)
+    v = jnp.asarray(v)
+    _v = _jax_promote_vector(v)
+    return multiply(q, multiply(_v, conjugate(q)))[..., 1:]
+
+
+@jax.jit
+def jax_normalize(q: jax.typing.ArrayLike) -> jax.Array:
+    # Implementation from: https://github.com/glotzerlab/rowan/blob/master/rowan/functions.py
+    """
+        Normalize quaternions q such that the first element is the identity element.
+    """
+    q = jnp.asarray(q)
+    norms = jnp.expand_dims(
+        jnp.linalg.norm(q, axis=-1),
+        axis=-1,
+    )
+    return q / norms
+
+
+def numpy_normalize(q: numpy.typing.ArrayLike) -> np.ndarray:
+    # Implementation from: https://github.com/glotzerlab/rowan/blob/master/rowan/functions.py
+    """
+        Normalize quaternions q such that the first element is the identity element.
+    """
+    q = np.asarray(q)
+    norms = np.linalg.norm(q, axis=-1)[..., np.newaxis]
+    return q / norms
+
+
+@jax.jit
 def _jax_promote_vector(q: numpy.typing.ArrayLike) -> np.ndarray:
     # Implementation from: https://github.com/glotzerlab/rowan/blob/master/rowan/functions.py
     """
@@ -92,7 +149,6 @@ def _jax_promote_vector(q: numpy.typing.ArrayLike) -> np.ndarray:
     return jnp.concatenate((jnp.zeros(q.shape[:-1] + (1,)), q), axis=-1)
 
 
-# Numpy is faster than Jax:
 def _numpy_promote_vector(q: numpy.typing.ArrayLike) -> np.ndarray:
     # Implementation from: https://github.com/glotzerlab/rowan/blob/master/rowan/functions.py
     """
@@ -160,6 +216,51 @@ class TestQuaternionMath(absltest.TestCase):
 
         # Rowan Result:
         true_value = rowan.calculus.integrate(q, v, dt)
+
+        # Assertion Test:
+        np.testing.assert_allclose(
+            true_value, result,
+            atol=1e-6,
+        )
+
+    def test_normalize(self):
+        q = np.random.rand(10, 4)
+        result_1 = jax_normalize(q)
+        result_2 = numpy_normalize(q)
+
+        # Rowan Result:
+        true_value = rowan.normalize(q)
+
+        # Assertion Test:
+        np.testing.assert_allclose(
+            true_value, result_1,
+            atol=1e-6,
+        )
+        np.testing.assert_allclose(
+            true_value, result_2,
+            atol=1e-6,
+        )
+
+    def test_conjugate(self):
+        q = np.random.rand(10, 4)
+        result = conjugate(q)
+
+        # Rowan Result:
+        true_value = rowan.conjugate(q)
+
+        # Assertion Test:
+        np.testing.assert_allclose(
+            true_value, result,
+            atol=1e-6,
+        )
+
+    def test_rotation(self):
+        q = np.random.rand(10, 4)
+        v = np.random.rand(10, 3)
+        result = rotate(q, v)
+
+        # Rowan Result:
+        true_value = rowan. rotate(q, v)
 
         # Assertion Test:
         np.testing.assert_allclose(
